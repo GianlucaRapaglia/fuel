@@ -119,6 +119,8 @@
   .food-kcal-val { font-family: 'DM Mono', monospace; font-size: 0.75rem; color: var(--kcal); min-width: 50px; text-align: right; }
   .remove-btn { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 0.8rem; padding: 2px 4px; border-radius: 4px; transition: all 0.15s; opacity: 1; }
   .remove-btn:hover { color: var(--accent2); background: rgba(241,53,53,0.1); }
+  .edit-btn { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 0.8rem; padding: 2px 4px; border-radius: 4px; transition: all 0.15s; }
+  .edit-btn:hover { color: var(--accent3); background: rgba(53,200,241,0.1); }
   .meal-clear-btn { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 0.9rem; padding: 2px 4px; border-radius: 4px; transition: color 0.15s; }
   .meal-clear-btn:hover { color: var(--accent2); }
   .add-food-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 18px; background: none; border: none; border-top: 1px dashed var(--border); color: var(--text3); font-family: 'DM Sans', sans-serif; font-size: 0.8rem; cursor: pointer; transition: all 0.15s; text-align: left; }
@@ -722,6 +724,7 @@ async function renderMeals() {
               <span class="f">F ${mac.fat}g</span>
             </div>
             <div class="food-kcal-val">${mac.kcal} kcal</div>
+            <button class="edit-btn" onclick="openEditFoodModal('${meal.id}', ${idx})">✏️</button>
             <button class="remove-btn" onclick="removeFood('${meal.id}', ${idx})">✕</button>
           </div>`;
         }).join('');
@@ -876,7 +879,7 @@ document.querySelectorAll('.modal-overlay').forEach(mo => {
 });
 
 function openAddFoodModal(mealId) {
-  addFoodCtx = { mealId, selectedProduct: null };
+  addFoodCtx = { mealId, selectedProduct: null, editingIndex: null };
   document.getElementById('food-search-input').value = '';
   document.getElementById('food-search-results').style.display = 'none';
   document.getElementById('selected-food-info').style.display = 'none';
@@ -884,6 +887,28 @@ function openAddFoodModal(mealId) {
   document.getElementById('food-grams-input').value = '100';
   openModal('modal-add-food');
   setTimeout(() => document.getElementById('food-search-input').focus(), 100);
+}
+
+function openEditFoodModal(mealId, idx) {
+  const k = dateKey(state.currentDate);
+  getDiaryDay(k).then(meals => {
+    const meal = meals.find(m => m.id === mealId);
+    if (!meal) return;
+    const fi = meal.foods[idx];
+    if (!fi) return;
+    const prod = state.products.find(p => p.id === fi.productId);
+    if (!prod) return;
+    addFoodCtx = { mealId, selectedProduct: prod, editingIndex: idx };
+    document.getElementById('food-search-input').value = prod.name;
+    document.getElementById('food-search-results').style.display = 'none';
+    document.getElementById('sfood-name').textContent = (prod.emoji||'') + ' ' + prod.name + ' — ' + prod.brand;
+    document.getElementById('sfood-macros').textContent = `Per 100g: ${prod.kcal} kcal | P ${prod.prot}g | C ${prod.carb}g | F ${prod.fat}g`;
+    document.getElementById('selected-food-info').style.display = 'block';
+    document.getElementById('food-grams-input').value = fi.grams;
+    updateFoodPreview();
+    openModal('modal-add-food');
+    setTimeout(() => document.getElementById('food-grams-input').focus(), 100);
+  });
 }
 
 function searchFoodForAdd() {
@@ -935,11 +960,21 @@ async function confirmAddFood() {
   if (!grams || grams <= 0) { alert('Quantità non valida.'); return; }
   const k = dateKey(state.currentDate);
   const meals = await getDiaryDay(k);
-  meals.find(m => m.id === addFoodCtx.mealId).foods.push({ productId: prod.id, grams });
+  const meal = meals.find(m => m.id === addFoodCtx.mealId);
+  if (!meal) return;
+
+  if (addFoodCtx.editingIndex !== null && addFoodCtx.editingIndex !== undefined) {
+    // update existing entry
+    meal.foods[addFoodCtx.editingIndex] = { productId: prod.id, grams };
+    notif('Alimento aggiornato!');
+  } else {
+    meal.foods.push({ productId: prod.id, grams });
+    notif(prod.name + ' aggiunto!');
+  }
+
   await saveDiaryDay(k);
   closeModal('modal-add-food');
   await render();
-  notif(prod.name + ' aggiunto!');
 }
 
 function openAddProductModal() {
