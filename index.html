@@ -177,6 +177,8 @@
   .pmacro.fat .val { color: var(--fat); }
   .product-del-btn { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 0.75rem; padding: 3px 5px; border-radius: 4px; transition: all 0.15s; }
   .product-del-btn:hover { color: var(--accent2); background: rgba(241,53,53,0.1); }
+  .product-edit-btn { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 0.75rem; padding: 3px 5px; border-radius: 4px; transition: all 0.15s; }
+  .product-edit-btn:hover { color: var(--accent3); background: rgba(53,200,241,0.1); }
   .category-tag { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 0.6rem; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.05em; background: var(--surface2); color: var(--text3); margin-top: 3px; }
 
   /* SEARCH BAR */
@@ -538,6 +540,8 @@ function dbGetAll(store) {
 }
 
 // ===================== PRODUCTS DEFAULT =====================
+let productCtx = { editId: null };
+
 const PRODUCTS_DEFAULT = [
   { id: 'p1', name: 'Petto di Pollo', brand: 'Generico', category: 'Proteine', emoji: '🍗', kcal: 165, prot: 31, carb: 0, fat: 3.6 },
   { id: 'p2', name: 'Tonno al Naturale', brand: 'Rio Mare', category: 'Proteine', emoji: '🐟', kcal: 103, prot: 23, carb: 0, fat: 1.2 },
@@ -765,7 +769,10 @@ function renderProducts() {
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
           <div class="product-per100">per 100g</div>
-          <button class="product-del-btn" onclick="deleteProduct('${p.id}')">✕</button>
+          <div style="display:flex;gap:4px">
+            <button class="product-edit-btn" onclick="openEditProductModal('${p.id}')">✏️</button>
+            <button class="product-del-btn" onclick="deleteProduct('${p.id}')">✕</button>
+          </div>
         </div>
       </div>
       <div class="product-macros-row">
@@ -978,7 +985,25 @@ async function confirmAddFood() {
 }
 
 function openAddProductModal() {
+  productCtx.editId = null;
   ['np-name','np-brand','np-kcal','np-prot','np-carb','np-fat','np-emoji'].forEach(id => document.getElementById(id).value = '');
+  document.querySelector('#modal-add-product .modal-title').textContent = 'Nuovo Prodotto';
+  openModal('modal-add-product');
+}
+
+function openEditProductModal(id) {
+  const p = state.products.find(x => x.id === id);
+  if (!p) return;
+  productCtx.editId = id;
+  document.getElementById('np-name').value = p.name;
+  document.getElementById('np-brand').value = p.brand;
+  document.getElementById('np-cat').value = p.category;
+  document.getElementById('np-emoji').value = p.emoji;
+  document.getElementById('np-kcal').value = p.kcal;
+  document.getElementById('np-prot').value = p.prot;
+  document.getElementById('np-carb').value = p.carb;
+  document.getElementById('np-fat').value = p.fat;
+  document.querySelector('#modal-add-product .modal-title').textContent = 'Modifica Prodotto';
   openModal('modal-add-product');
 }
 
@@ -990,21 +1015,35 @@ async function saveNewProduct() {
   const fat  = parseFloat(document.getElementById('np-fat').value);
   if (!name) { alert('Nome obbligatorio.'); return; }
   if ([kcal,prot,carb,fat].some(isNaN)) { alert('Inserisci tutti i valori nutrizionali.'); return; }
-  const p = {
-    id: 'u_' + Date.now(),
-    name,
-    brand: document.getElementById('np-brand').value.trim() || 'Generico',
-    category: document.getElementById('np-cat').value,
-    emoji: document.getElementById('np-emoji').value.trim() || '📦',
-    kcal, prot, carb, fat,
-  };
-  await saveProduct(p);
-  state.products.push(p);
+
+  if (productCtx.editId) {
+    // update existing product
+    const p = state.products.find(x => x.id === productCtx.editId);
+    if (!p) return;
+    p.name = name;
+    p.brand = document.getElementById('np-brand').value.trim() || 'Generico';
+    p.category = document.getElementById('np-cat').value;
+    p.emoji = document.getElementById('np-emoji').value.trim() || '📦';
+    p.kcal = kcal; p.prot = prot; p.carb = carb; p.fat = fat;
+    await saveProduct(p);
+    notif('Prodotto aggiornato!');
+  } else {
+    const p = {
+      id: 'u_' + Date.now(),
+      name,
+      brand: document.getElementById('np-brand').value.trim() || 'Generico',
+      category: document.getElementById('np-cat').value,
+      emoji: document.getElementById('np-emoji').value.trim() || '📦',
+      kcal, prot, carb, fat,
+    };
+    await saveProduct(p);
+    state.products.push(p);
+    notif(name + ' salvato!');
+  }
+
   closeModal('modal-add-product');
   renderCategoryPills(); renderProducts();
-  notif(name + ' salvato!');
 }
-
 // ===================== PWA INSTALL =====================
 let deferredPrompt = null;
 window.addEventListener('beforeinstallprompt', e => {
