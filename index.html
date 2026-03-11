@@ -117,9 +117,10 @@
   .food-macros .c { color: var(--carbs); }
   .food-macros .f { color: var(--fat); }
   .food-kcal-val { font-family: 'DM Mono', monospace; font-size: 0.75rem; color: var(--kcal); min-width: 50px; text-align: right; }
-  .remove-btn { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 0.8rem; padding: 2px 4px; border-radius: 4px; transition: all 0.15s; opacity: 0; }
-  .food-row:hover .remove-btn { opacity: 1; }
+  .remove-btn { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 0.8rem; padding: 2px 4px; border-radius: 4px; transition: all 0.15s; opacity: 1; }
   .remove-btn:hover { color: var(--accent2); background: rgba(241,53,53,0.1); }
+  .meal-clear-btn { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 0.9rem; padding: 2px 4px; border-radius: 4px; transition: color 0.15s; }
+  .meal-clear-btn:hover { color: var(--accent2); }
   .add-food-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 18px; background: none; border: none; border-top: 1px dashed var(--border); color: var(--text3); font-family: 'DM Sans', sans-serif; font-size: 0.8rem; cursor: pointer; transition: all 0.15s; text-align: left; }
   .add-food-btn:hover { color: var(--accent); background: rgba(200,241,53,0.03); }
   .empty-state { color: var(--text3); font-size: 0.85rem; }
@@ -730,7 +731,10 @@ async function renderMeals() {
     div.innerHTML = `
       <div class="meal-header">
         <div class="meal-name"><span>${meal.emoji}</span>${meal.name}</div>
-        <div class="meal-kcal"><span>${mKcal}</span> kcal</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="meal-kcal"><span>${mKcal}</span> kcal</div>
+          <button class="meal-clear-btn" title="Svuota pasto" onclick="clearMeal('${meal.id}')">🗑️</button>
+        </div>
       </div>
       <div class="meal-items">${foodsHtml}</div>
       <button class="add-food-btn" onclick="openAddFoodModal('${meal.id}')">＋ Aggiungi alimento</button>`;
@@ -820,7 +824,27 @@ async function removeFood(mealId, idx) {
   const k = dateKey(state.currentDate);
   const meals = await getDiaryDay(k);
   const meal = meals.find(m => m.id === mealId);
-  if (meal) { meal.foods.splice(idx, 1); await saveDiaryDay(k); await render(); }
+  if (meal) {
+    const removed = meal.foods.splice(idx, 1)[0];
+    await saveDiaryDay(k);
+    await render();
+    if (removed) notif('Alimento rimosso');
+  }
+}
+
+// clear all foods from a meal
+async function clearMeal(mealId) {
+  const k = dateKey(state.currentDate);
+  const meals = await getDiaryDay(k);
+  const meal = meals.find(m => m.id === mealId);
+  if (meal && meal.foods.length) {
+    if (confirm(`Svuotare "${meal.name}"?`)) {
+      meal.foods = [];
+      await saveDiaryDay(k);
+      await render();
+      notif('Pasto svuotato');
+    }
+  }
 }
 
 async function deleteProduct(id) {

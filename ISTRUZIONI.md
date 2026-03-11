@@ -48,7 +48,7 @@ git push -u origin main
 
 ### 5. La tua app sarà live in ~2 minuti su:
 ```
-https://USERNAME.github.io/fuel-app/
+https://USERNAME.github.io/fuel/
 ```
 
 ### 6. Installa come app
