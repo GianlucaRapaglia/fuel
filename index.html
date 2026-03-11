@@ -483,7 +483,70 @@
 
 <div class="notif" id="notif"></div>
 
-<script>
+<script type="module">
+// Firebase imports
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js';
+import { getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js';
+import { getAuth, signInWithPopup, signOut, GoogleAuthProvider, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-auth.js';
+
+// ===================== Firebase CONFIG =====================
+const firebaseConfig = {
+  apiKey: "AIzaSyCnOOkxQxYyZo0weQ5ssMPGc1QhiCkqSJs",
+  authDomain: "fuel-app-2e97d.firebaseapp.com",
+  projectId: "fuel-app-2e97d",
+  storageBucket: "fuel-app-2e97d.firebasestorage.app",
+  messagingSenderId: "231550700244",
+  appId: "1:231550700244:web:33c9aa191d72e61e108941"
+};
+
+// Initialize Firebase
+const fbApp = initializeApp(firebaseConfig);
+const fbDb = getFirestore(fbApp);
+const fbAuth = getAuth(fbApp);
+
+// authentication & app state
+let state = {
+  currentDate: new Date(),
+  targets: { kcal: 2300, prot: 158, carb: 260, fat: 64 },
+  products: [],
+  diaryCache: {}, // loaded days
+  activeFilter: 'Tutti',
+  user: null,
+  useFirebase: false,
+};
+
+// listen to auth changes
+onAuthStateChanged(fbAuth, user => {
+  state.user = user;
+  state.useFirebase = !!user;
+  const btn = document.getElementById('sync-btn');
+  if (btn) btn.textContent = user ? 'Logout' : 'Login';
+  if (user && dateKey(state.currentDate)) {
+    subscribediary(dateKey(state.currentDate));
+  }
+});
+
+function login() {
+  const provider = new GoogleAuthProvider();
+  signInWithPopup(fbAuth, provider).catch(e => console.warn('login failed', e));
+}
+function logout() { signOut(fbAuth); }
+function toggleAuth() { state.user ? logout() : login(); }
+
+// subscribe to a single diary document for real-time updates
+let diaryUnsubscribe = null;
+function subscribediary(dateStr) {
+  if (diaryUnsubscribe) diaryUnsubscribe();
+  if (!state.useFirebase) return;
+  const docRef = doc(fbDb, 'diaries', dateStr);
+  diaryUnsubscribe = onSnapshot(docRef, snap => {
+    if (snap.exists()) {
+      state.diaryCache[dateStr] = snap.data().meals;
+      renderMeals(); renderSummary();
+    }
+  });
+}
+
 // ===================== IndexedDB SETUP =====================
 const DB_NAME = 'FuelDB';
 const DB_VERSION = 1;
@@ -585,14 +648,7 @@ const MEALS_TEMPLATE = [
 ];
 
 // ===================== STATE =====================
-let state = {
-  currentDate: new Date(),
-  targets: { kcal: 2300, prot: 158, carb: 260, fat: 64 },
-  products: [],
-  diaryCache: {}, // loaded days
-  activeFilter: 'Tutti',
-};
-
+// (state already defined above with Firebase support)
 let addFoodCtx = { mealId: null, selectedProduct: null };
 
 // ===================== DB HELPERS =====================
