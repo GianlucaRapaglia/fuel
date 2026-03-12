@@ -1,4 +1,5 @@
-const CACHE_NAME = 'fuel-v1';
+// bump this value each time you deploy to force clients to refresh caches
+const CACHE_NAME = 'fuel-v2';
 const ASSETS = [
   './index.html',
   './manifest.json',
@@ -6,6 +7,15 @@ const ASSETS = [
   './icons/icon-512.png',
   'https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap'
 ];
+
+// helper to fetch-index-fallback (avoids serving stale index when online)
+function fetchAndCache(request) {
+  return fetch(request).then(res => {
+    const copy = res.clone();
+    caches.open(CACHE_NAME).then(c => c.put(request, copy));
+    return res;
+  });
+}
 
 // Install: cache all assets
 self.addEventListener('install', event => {
@@ -27,10 +37,16 @@ self.addEventListener('activate', event => {
 
 // Fetch: serve from cache, fallback to network
 self.addEventListener('fetch', event => {
+  // always try network for navigations to pick up new index.html
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetchAndCache(event.request).catch(() => caches.match('./index.html'))
+    );
+    return;
+  }
   event.respondWith(
     caches.match(event.request).then(cached => {
-      return cached || fetch(event.request).catch(() => {
-        // If offline and not cached, return the main page
+      return cached || fetchAndCache(event.request).catch(() => {
         if (event.request.mode === 'navigate') {
           return caches.match('./index.html');
         }
