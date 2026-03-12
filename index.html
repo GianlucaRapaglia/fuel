@@ -179,6 +179,13 @@
   .product-del-btn:hover { color: var(--accent2); background: rgba(241,53,53,0.1); }
   .product-edit-btn { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 0.75rem; padding: 3px 5px; border-radius: 4px; transition: all 0.15s; }
   .product-edit-btn:hover { color: var(--accent3); background: rgba(53,200,241,0.1); }
+  .friend-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .friend-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .friend-photo { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
+  .friend-name { font-weight: 600; }
+  .user-info { display: flex; align-items: center; gap: 6px; color: var(--text); font-size: 0.9rem; }
+  .user-info img { width: 24px; height: 24px; border-radius: 50%; }
+
   .category-tag { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 0.6rem; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.05em; background: var(--surface2); color: var(--text3); margin-top: 3px; }
 
   /* SEARCH BAR */
@@ -253,18 +260,20 @@
 
 <div class="app" id="app" style="display:none">
   <header>
-    <div class="logo">FUEL<span>.</span></div>
+    <div class="logo">FUEL<span>.</span><span id="net-indicator">⚫</span></div>
     <div class="date-nav">
       <button onclick="changeDay(-1)">‹</button>
       <span id="current-date"></span>
       <button onclick="changeDay(1)">›</button>
     </div>
+    <div id="user-info" class="user-info"></div>
     <button id="sync-btn" class="btn btn-secondary" onclick="toggleAuth()" style="font-size:0.8rem">Login</button>
   </header>
 
   <nav class="tab-nav">
     <button class="tab-btn active" onclick="showTab('diary')">📋 Diario</button>
     <button class="tab-btn" onclick="showTab('products')">🥗 Prodotti</button>
+    <button class="tab-btn" onclick="showTab('friends')">👥 Amici</button>
     <button class="tab-btn" onclick="showTab('profile')">👤 Profilo</button>
   </nav>
 
@@ -313,10 +322,28 @@
       <div class="products-grid" id="products-grid"></div>
     </div>
 
+    <!-- FRIENDS -->
+    <div id="panel-friends" class="panel">
+      <div class="section-header">
+        <div class="section-title">👥 Amici</div>
+      </div>
+      <div id="friends-container" style="display:flex;flex-direction:column;gap:16px"></div>
+    </div>
+
     <!-- PROFILE -->
     <div id="panel-profile" class="panel">
       <div class="profile-grid">
-        <div class="stat-block">
+        <div class="stat-block" id="profile-view">
+          <div class="stat-block-title">📊 Il Tuo Profilo <button class="edit-btn" onclick="toggleProfileEdit()">✏️</button></div>
+          <div class="stat-item"><span class="stat-key">Età</span><span class="stat-val" id="view-age">—</span></div>
+          <div class="stat-item"><span class="stat-key">Altezza</span><span class="stat-val" id="view-height">—</span></div>
+          <div class="stat-item"><span class="stat-key">Peso</span><span class="stat-val" id="view-weight">—</span></div>
+          <div class="stat-item"><span class="stat-key">BMI</span><span class="stat-val" id="view-bmi">—</span></div>
+          <div class="stat-item"><span class="stat-key">Body Fat</span><span class="stat-val" id="view-bodyfat">—</span></div>
+          <div class="stat-item"><span class="stat-key">Massa Muscolare</span><span class="stat-val" id="view-muscle">—</span></div>
+          <div class="stat-item"><span class="stat-key">Metabolismo Basale</span><span class="stat-val" id="view-bmr">—</span></div>
+        </div>
+        <div class="stat-block" id="profile-edit" style="display:none">
           <div class="stat-block-title">📊 Il Tuo Profilo</div>
           <div class="form-row">
             <div class="form-group">
@@ -355,14 +382,74 @@
           </div>
           <button class="btn btn-primary" onclick="saveProfile()">💾 Salva Profilo</button>
         </div>
-        <div class="stat-block">
-          <div class="stat-block-title">🎯 Obiettivi</div>
-          <div class="stat-item"><span class="stat-key">Peso Target</span><span class="stat-val" style="color:var(--accent)">~80 kg</span></div>
-          <div class="stat-item"><span class="stat-key">Body Fat Target</span><span class="stat-val" style="color:var(--accent)">13–15%</span></div>
-          <div class="stat-item"><span class="stat-key">TDEE Stimato</span><span class="stat-val">2.500 kcal</span></div>
-          <div class="stat-item"><span class="stat-key">Target Calorico</span><span class="stat-val" style="color:var(--kcal)">2.300 kcal</span></div>
-          <div class="stat-item"><span class="stat-key">Strategia</span><span class="stat-val" style="color:var(--accent3)">Body Recomp</span></div>
-          <div class="stat-item"><span class="stat-key">Attività</span><span class="stat-val">Moderata+</span></div>
+        <div class="stat-block" id="goals-view">
+          <div class="stat-block-title">🎯 Obiettivi <button class="edit-btn" onclick="toggleGoalsEdit()">✏️</button></div>
+          <div class="stat-item"><span class="stat-key">Peso Target</span><span class="stat-val" id="view-goal-weight">— kg</span></div>
+          <div class="stat-item"><span class="stat-key">Body Fat Target</span><span class="stat-val" id="view-goal-bodyfat">—%</span></div>
+          <div class="stat-item"><span class="stat-key">TDEE Stimato</span><span class="stat-val" id="view-goal-tdee">— kcal</span></div>
+          <div class="stat-item"><span class="stat-key">Target Calorico</span><span class="stat-val" id="view-goal-kcal">— kcal</span></div>
+          <div class="stat-item"><span class="stat-key">Strategia</span><span class="stat-val" id="view-goal-strategy" style="color:var(--accent3)">—</span></div>
+        </div>
+        <div class="stat-block" id="goals-edit" style="display:none">
+          <div class="stat-block-title">🎯 Modifica Obiettivi</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Peso Target (kg)</label>
+              <input type="number" class="form-input" id="goal-weight" placeholder="kg">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Body Fat Target (%)</label>
+              <input type="number" class="form-input" id="goal-bodyfat" placeholder="%">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">TDEE Stimato (kcal)</label>
+              <input type="number" class="form-input" id="goal-tdee" placeholder="kcal">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Target Calorico (kcal)</label>
+              <input type="number" class="form-input" id="goal-kcal" placeholder="kcal">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex:1">
+              <label class="form-label">Strategia</label>
+              <input type="text" class="form-input" id="goal-strategy" placeholder="es. Body Recomp">
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="saveGoals()">💾 Salva Obiettivi</button>
+        </div>
+        <div class="stat-block" id="targets-view">
+          <div class="stat-block-title">⚙️ Target Macro <button class="edit-btn" onclick="toggleTargetsEdit()">✏️</button></div>
+          <div class="stat-item"><span class="stat-key">Calorie</span><span class="stat-val" id="view-t-macro-kcal">— kcal</span></div>
+          <div class="stat-item"><span class="stat-key">Proteine</span><span class="stat-val" id="view-t-macro-prot">— g</span></div>
+          <div class="stat-item"><span class="stat-key">Carboidrati</span><span class="stat-val" id="view-t-macro-carb">— g</span></div>
+          <div class="stat-item"><span class="stat-key">Grassi</span><span class="stat-val" id="view-t-macro-fat">— g</span></div>
+        </div>
+        <div class="stat-block" id="targets-edit" style="display:none">
+          <div class="stat-block-title">⚙️ Modifica Target Macro</div>
+          <div class="form-row" style="margin-bottom:10px">
+            <div class="form-group">
+              <label class="form-label">Calorie Target (kcal)</label>
+              <input type="number" class="form-input" id="set-kcal" value="2300">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Proteine (g)</label>
+              <input type="number" class="form-input" id="set-prot" value="158">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Carboidrati (g)</label>
+              <input type="number" class="form-input" id="set-carb" value="260">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Grassi (g)</label>
+              <input type="number" class="form-input" id="set-fat" value="64">
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="saveTargets()">💾 Salva Target</button>
         </div>
       </div>
       <div class="stat-block" style="margin-top:16px">
@@ -389,30 +476,6 @@
             <span class="target-nums" id="prof-nums-fat"></span>
           </div>
         </div>
-      </div>
-      <div class="stat-block" style="margin-top:16px">
-        <div class="stat-block-title">⚙️ Modifica Target Macro</div>
-        <div class="form-row" style="margin-bottom:10px">
-          <div class="form-group">
-            <label class="form-label">Calorie Target (kcal)</label>
-            <input type="number" class="form-input" id="set-kcal" value="2300">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Proteine (g)</label>
-            <input type="number" class="form-input" id="set-prot" value="158">
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Carboidrati (g)</label>
-            <input type="number" class="form-input" id="set-carb" value="260">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Grassi (g)</label>
-            <input type="number" class="form-input" id="set-fat" value="64">
-          </div>
-        </div>
-        <button class="btn btn-primary" onclick="saveTargets()">💾 Salva Target</button>
       </div>
     </div>
   </main>
@@ -546,6 +609,9 @@ const fbDb = getFirestore(fbApp);
 const fbAuth = getAuth(fbApp);
 
 // authentication & app state
+// replace this with your own UID (the account that owns the app)
+const OWNER_UID = 'tEUDo73p7UWRHQjSJRMHw1gVqhM2';
+
 let state = {
   currentDate: new Date(),
   targets: { kcal: 2300, prot: 158, carb: 260, fat: 64 },
@@ -554,7 +620,13 @@ let state = {
   activeFilter: 'Tutti',
   user: null,
   useFirebase: false,
-  profile: {},
+  profile: { goals: { weight:'', bodyfat:'', tdee:'', kcal:'', strategy:'' } },
+  // remember products we deleted while offline / before cloud sync
+  deletedProducts: [],
+  // UI flags
+  editingProfile: false,
+  editingGoals: false,
+  editingTargets: false,
 };
 
 // listen to auth changes
@@ -563,6 +635,16 @@ onAuthStateChanged(fbAuth, user => {
   state.useFirebase = !!user;
   const btn = document.getElementById('sync-btn');
   if (btn) btn.textContent = user ? 'Logout' : 'Login';
+  // update header user info
+  const ui = document.getElementById('user-info');
+  if (ui) {
+    if (user) {
+      const name = user.displayName ? user.displayName.split(' ')[0] : '';
+      ui.innerHTML = `<img src="${user.photoURL||''}" alt=""><span>${name}</span>`;
+    } else {
+      ui.innerHTML = '';
+    }
+  }
   if (user && dateKey(state.currentDate)) {
     subscribediary(dateKey(state.currentDate));
   }
@@ -575,11 +657,16 @@ onAuthStateChanged(fbAuth, user => {
     // push local products and start listening
     syncCachedProducts().catch(() => {});
     subscribeProducts();
+    // refresh friend list if visible
+    if (document.getElementById('panel-friends')?.classList.contains('active')) {
+      renderFriends();
+    }
     // attempt to fetch profile from Firestore if available
     const prefRef = doc(fbDb, 'profiles', user.uid);
     getDoc(prefRef).then(snap => {
       if (snap.exists()) {
         state.profile = snap.data();
+        state.profile.goals = state.profile.goals || { weight:'', bodyfat:'', tdee:'', kcal:'', strategy:'' };
         renderProfileBars();
       }
       if (!state.profile || !state.profile.age) {
@@ -602,7 +689,9 @@ let diaryUnsubscribe = null;
 function subscribediary(dateStr) {
   if (diaryUnsubscribe) diaryUnsubscribe();
   if (!state.useFirebase) return;
-  const docRef = doc(fbDb, 'diaries', dateStr);
+  let key = dateStr;
+  if (state.user) key = `${state.user.uid}_${dateStr}`;
+  const docRef = doc(fbDb, 'diaries', key);
   diaryUnsubscribe = onSnapshot(docRef, snap => {
     if (snap.exists()) {
       state.diaryCache[dateStr] = snap.data().meals;
@@ -618,7 +707,7 @@ function subscribeProducts() {
   if (!state.useFirebase) return;
   const collRef = collection(fbDb, 'products');
   productsUnsub = onSnapshot(collRef, snap => {
-    snap.docChanges().forEach(change => {
+    for (const change of snap.docChanges()) {
       const data = change.doc.data();
       if (change.type === 'added' || change.type === 'modified') {
         state.products = state.products.filter(p => p.id !== data.id);
@@ -628,14 +717,33 @@ function subscribeProducts() {
         state.products = state.products.filter(p => p.id !== data.id);
         dbDelete('products', data.id).catch(() => {});
       }
-    });
+    }
     renderCategoryPills(); renderProducts();
   });
+}
+
+// attempt to delete any products that were queued while offline
+async function flushPendingDeletes() {
+  if (!state.useFirebase || !state.user) return;
+  const arr = state.deletedProducts || [];
+  for (const id of [...arr]) {
+    try {
+      const prodRef = doc(fbDb, 'products', id);
+      await deleteDoc(prodRef);
+      const idx = arr.indexOf(id);
+      if (idx !== -1) arr.splice(idx,1);
+      await dbPut('settings', arr, 'deletedProducts');
+    } catch (e) {
+      console.warn('retry delete failed', e);
+    }
+  }
 }
 
 // upload all cached products to Firestore
 async function syncCachedProducts() {
   if (!state.useFirebase || !state.user) return;
+  // first flush deletions to avoid ghost items
+  await flushPendingDeletes();
   const all = await dbGetAll('products');
   for (const p of all) {
     try {
@@ -653,7 +761,8 @@ async function syncCachedDiaries() {
   for (const dateStr of Object.keys(state.diaryCache)) {
     try {
       const meals = state.diaryCache[dateStr];
-      const docRef = doc(fbDb,'diaries',dateStr);
+      const key = `${state.user.uid}_${dateStr}`;
+      const docRef = doc(fbDb,'diaries',key);
       await setDoc(docRef,{meals},{merge:true});
     } catch(e){ console.warn('sync diary failed', e); }
   }
@@ -749,6 +858,75 @@ const PRODUCTS_DEFAULT = [
   { id: 'g3', name: 'Burro di Arachidi', brand: 'Biopratico', category: 'Snack', emoji: '🥜', kcal: 588, prot: 25, carb: 20, fat: 50 },
   { id: 'i1', name: 'Creatina Monoidrato', brand: 'Creapure', category: 'Integratori', emoji: '⚡', kcal: 0, prot: 0, carb: 0, fat: 0 },
   { id: 'i2', name: 'Barretta Proteica', brand: 'Fulfil', category: 'Integratori', emoji: '🍫', kcal: 210, prot: 20, carb: 18, fat: 5 },
+  // additional defaults
+  { id: 'c7', name: 'Muesli Cameo', brand: 'Cameo', category: 'Carboidrati', emoji: '🥣', kcal: 350, prot: 7, carb: 60, fat: 8 },
+  { id: 's1', name: 'Miele Millefiori', brand: 'Rigoni di Asiago', category: 'Altro', emoji: '🍯', kcal: 304, prot: 0.3, carb: 82, fat: 0 },
+  { id: 'l5', name: 'Parmigiano Reggiano', brand: 'Parmareggio', category: 'Latticini', emoji: '🧀', kcal: 431, prot: 38, carb: 4.1, fat: 29 },
+  { id: 'p10', name: 'Prosciutto Crudo', brand: 'San Daniele', category: 'Proteine', emoji: '🍖', kcal: 242, prot: 26, carb: 0, fat: 14 },
+  { id: 'd1', name: 'Pane Bauletto Integrale', brand: 'Mulino Bianco', category: 'Carboidrati', emoji: '🍞', kcal: 250, prot: 9, carb: 45, fat: 3.7 },
+  { id: 'f5', name: 'Arancia', brand: 'Generico', category: 'Frutta', emoji: '🍊', kcal: 47, prot: 0.9, carb: 12, fat: 0.1 },
+  { id: 'v4', name: 'Pomodoro', brand: 'Generico', category: 'Verdura', emoji: '🍅', kcal: 18, prot: 0.9, carb: 3.9, fat: 0.2 },
+  { id: 's2', name: 'Biscotti Plasmon', brand: 'Plasmon', category: 'Snack', emoji: '🍪', kcal: 450, prot: 7, carb: 75, fat: 15 },
+  { id: 'i3', name: 'Barretta Granola', brand: 'Kellogg\'s', category: 'Integratori', emoji: '🍫', kcal: 190, prot: 4, carb: 28, fat: 7 },
+  { id: 'g4', name: 'Olio di Oliva', brand: 'Bertolli', category: 'Altro', emoji: '🫒', kcal: 884, prot: 0, carb: 0, fat: 100 },
+  // famous Italian dishes
+  { id: 'd2', name: 'Spaghetti Carbonara', brand: 'Generico', category: 'Pasti', emoji: '🍝', kcal: 400, prot: 15, carb: 50, fat: 18 },
+  { id: 'd3', name: 'Pasta all’Amatriciana', brand: 'Generico', category: 'Pasti', emoji: '🍝', kcal: 380, prot: 12, carb: 48, fat: 16 },
+  { id: 'd4', name: 'Lasagna alla Bolognese', brand: 'Generico', category: 'Pasti', emoji: '🍲', kcal: 300, prot: 15, carb: 20, fat: 18 },
+  { id: 'd5', name: 'Pizza Margherita', brand: 'Generico', category: 'Pasti', emoji: '🍕', kcal: 270, prot: 10, carb: 33, fat: 10 },
+  { id: 'd6', name: 'Pastiera Napoletana', brand: 'Generico', category: 'Dolci', emoji: '🥧', kcal: 380, prot: 7, carb: 45, fat: 18 },
+  { id: 'd7', name: 'Cannolo Siciliano', brand: 'Generico', category: 'Dolci', emoji: '🥐', kcal: 350, prot: 6, carb: 40, fat: 18 },
+
+  // --- Italian Pantry & Fridge Additions ---
+  { id: 'p11', name: 'Bresaola della Valtellina', brand: 'Rigamonti', category: 'Proteine', emoji: '🥩', kcal: 151, prot: 33, carb: 0.5, fat: 2 },
+  { id: 'p12', name: 'Tacchino Arrosto', brand: 'Aia', category: 'Proteine', emoji: '🥪', kcal: 100, prot: 20, carb: 1, fat: 2 },
+  { id: 'l6', name: 'Mozzarella di Bufala', brand: 'Garofalo', category: 'Latticini', emoji: '⚪', kcal: 288, prot: 14, carb: 1.5, fat: 25 },
+  { id: 'l7', name: 'Burrata', brand: 'Generico', category: 'Latticini', emoji: '🧀', kcal: 254, prot: 12, carb: 2, fat: 22 },
+  { id: 'l8', name: 'Skyr Bianco', brand: 'Lidl (Milbona)', category: 'Latticini', emoji: '🥣', kcal: 63, prot: 11, carb: 4, fat: 0.2 },
+  { id: 'c8', name: 'Fette Biscottate', brand: 'Mulino Bianco', category: 'Carboidrati', emoji: '🍞', kcal: 426, prot: 12, carb: 72, fat: 8 },
+  { id: 'c9', name: 'Gnocchi di Patate', brand: 'Giovanni Rana', category: 'Carboidrati', emoji: '🥔', kcal: 160, prot: 3.5, carb: 35, fat: 0.5 },
+  { id: 'c10', name: 'Gallette di Mais', brand: 'Fiorentini', category: 'Carboidrati', emoji: '🥯', kcal: 385, prot: 7, carb: 82, fat: 2.5 },
+  { id: 'c11', name: 'Farro Perlato (crudo)', brand: 'Poggio del Farro', category: 'Carboidrati', emoji: '🌾', kcal: 340, prot: 14, carb: 65, fat: 2.5 },
+  { id: 'v5', name: 'Passata di Pomodoro', brand: 'Mutti', category: 'Verdura', emoji: '🍅', kcal: 36, prot: 1.6, carb: 5.1, fat: 0.2 },
+  
+  // --- Classic Italian Breakfast & Snacks ---
+  { id: 's3', name: 'Nutella', brand: 'Ferrero', category: 'Snack', emoji: '🍫', kcal: 539, prot: 6.3, carb: 57.5, fat: 30.9 },
+  { id: 's4', name: 'Taralli Pugliesi', brand: 'Generico', category: 'Snack', emoji: '🥨', kcal: 460, prot: 9, carb: 65, fat: 18 },
+  { id: 's5', name: 'Pavesini', brand: 'Pavesi', category: 'Snack', emoji: '🍪', kcal: 395, prot: 7.5, carb: 83, fat: 3.5 },
+  { id: 's6', name: 'Biscotti Gocciole', brand: 'Pavesi', category: 'Snack', emoji: '🍪', kcal: 480, prot: 6.5, carb: 67, fat: 20 },
+
+  // --- More Prepared Dishes ---
+  { id: 'd8', name: 'Risotto ai Funghi', brand: 'Generico', category: 'Pasti', emoji: '🥘', kcal: 150, prot: 3, carb: 25, fat: 4 },
+  { id: 'd9', name: 'Parmigiana di Melanzane', brand: 'Generico', category: 'Pasti', emoji: '🍆', kcal: 180, prot: 7, carb: 8, fat: 14 },
+  { id: 'd10', name: 'Polenta (cotta)', brand: 'Generico', category: 'Carboidrati', emoji: '🌽', kcal: 85, prot: 2, carb: 18, fat: 0.5 },
+  { id: 'd11', name: 'Tiramisù', brand: 'Generico', category: 'Dolci', emoji: '🍰', kcal: 300, prot: 5, carb: 35, fat: 15 },
+
+  // --- Healthy Fats & Nuts (Noci, Mandorle, etc.) ---
+  { id: 'g5', name: 'Noci Sgusciate', brand: 'Generico', category: 'Snack', emoji: '🥜', kcal: 654, prot: 15, carb: 14, fat: 65 },
+  { id: 'g6', name: 'Pistacchi Tostati', brand: 'Generico', category: 'Snack', emoji: '🟢', kcal: 562, prot: 20, carb: 27, fat: 45 },
+  { id: 'g7', name: 'Nocciole Piemonte', brand: 'Generico', category: 'Snack', emoji: '🌰', kcal: 628, prot: 15, carb: 17, fat: 61 },
+  { id: 'g8', name: 'Burro d\'Arachidi 100%', brand: 'Prozis / MyProtein', category: 'Snack', emoji: '🥜', kcal: 588, prot: 28, carb: 12, fat: 49 },
+  { id: 'g9', name: 'Semi di Chia', brand: 'Generico', category: 'Altro', emoji: '🧉', kcal: 486, prot: 17, carb: 42, fat: 31 },
+  { id: 'g10', name: 'Semi di Zucca', brand: 'Generico', category: 'Snack', emoji: '🎃', kcal: 559, prot: 30, carb: 11, fat: 49 },
+
+  // --- High-Protein / Fit-Friendly Italian Picks ---
+  { id: 'p13', name: 'Fiocchi di Latte Light', brand: 'Jocca', category: 'Latticini', emoji: '🥣', kcal: 66, prot: 10, carb: 1.5, fat: 2 },
+  { id: 'p14', name: 'Fesa di Tacchino', brand: 'Aia / Negroni', category: 'Proteine', emoji: '🍗', kcal: 104, prot: 24, carb: 1, fat: 1 },
+  { id: 'p15', name: 'Seitan Naturale', brand: 'Compagnia Italiana', category: 'Proteine', emoji: '🌾', kcal: 120, prot: 25, carb: 4, fat: 0.5 },
+  { id: 'l9', name: 'Quark Magro', brand: 'Exquisa', category: 'Latticini', emoji: '🥛', kcal: 48, prot: 8.5, carb: 3.5, fat: 0.2 },
+  
+  // --- Complex Carbs & "Fit" Volume ---
+  { id: 'c12', name: 'Riso Venere (nero)', brand: 'Riso Scotti', category: 'Carboidrati', emoji: '🍚', kcal: 345, prot: 8, carb: 64, fat: 2 },
+  { id: 'c13', name: 'Pane di Segale', brand: 'Pema', category: 'Carboidrati', emoji: '🍞', kcal: 193, prot: 5, carb: 36, fat: 1.2 },
+  { id: 'c14', name: 'Pasta Integrale', brand: 'La Molisana', category: 'Carboidrati', emoji: '🍝', kcal: 350, prot: 14, carb: 65, fat: 2.5 },
+  { id: 'c15', name: 'Cous Cous (crudo)', brand: 'Barilla', category: 'Carboidrati', emoji: '🥣', kcal: 356, prot: 12, carb: 72, fat: 1.5 },
+
+  // --- Healthy Pantry Staples ---
+  { id: 'v6', name: 'Hummus di Ceci', brand: 'Noa / Esselunga', category: 'Snack', emoji: '🥙', kcal: 166, prot: 5, carb: 8, fat: 12 },
+  { id: 'v7', name: 'Edamame', brand: 'Bonduelle', category: 'Proteine', emoji: '🫛', kcal: 122, prot: 11, carb: 10, fat: 5 },
+  { id: 'f6', name: 'Avocado', brand: 'Generico', category: 'Frutta', emoji: '🥑', kcal: 160, prot: 2, carb: 9, fat: 15 },
+  { id: 'f7', name: 'Pompelmo', brand: 'Generico', category: 'Frutta', emoji: '🍊', kcal: 42, prot: 0.8, carb: 11, fat: 0.1 }
+
 ];
 
 const MEALS_TEMPLATE = [
@@ -772,6 +950,26 @@ async function loadProducts() {
     state.products = [...PRODUCTS_DEFAULT];
   } else {
     state.products = saved;
+    // also ensure any new defaults are inserted locally (migration path)
+    const added = [];
+    for (const p of PRODUCTS_DEFAULT) {
+      if (!state.products.some(x => x.id === p.id)) {
+        state.products.push(p);
+        await dbPut('products', p);
+        added.push(p);
+      }
+    }
+    // if user is logged in and firebase enabled, push the newly added defaults
+    if (added.length && state.useFirebase && state.user) {
+      for (const p of added) {
+        try {
+          const prodRef = doc(fbDb, 'products', p.id);
+          await setDoc(prodRef, p, { merge: true });
+        } catch (e) {
+          console.warn('failed to push default product to firestore', e);
+        }
+      }
+    }
   }
 }
 
@@ -788,25 +986,54 @@ async function saveProduct(p) {
 }
 
 async function deleteProductDB(id) {
+  // always remove from local store
   await dbDelete('products', id);
-  if (state.useFirebase && state.user) {
+  // only the owner is allowed to touch Firestore
+  if (!(state.useFirebase && state.user && state.user.uid === OWNER_UID)) {
+    return;
+  }
+  // queue for cloud deletion if not done immediately
+  const tryDelete = async () => {
     try {
       const prodRef = doc(fbDb, 'products', id);
       await deleteDoc(prodRef);
+      return true;
     } catch (e) {
       console.warn('failed to delete product from firestore', e);
+      return false;
+    }
+  };
+  const success = await tryDelete();
+  if (!success) {
+    state.deletedProducts = state.deletedProducts || [];
+    if (!state.deletedProducts.includes(id)) {
+      state.deletedProducts.push(id);
+      await dbPut('settings', state.deletedProducts, 'deletedProducts');
     }
   }
 }
+
 
 async function loadSettings() {
   const t = await dbGet('settings', 'targets');
   if (t) state.targets = t;
   const p = await dbGet('settings', 'profile');
-  if (p) state.profile = p;
+  if (p) {
+    state.profile = p;
+    state.profile.goals = state.profile.goals || { weight:'', bodyfat:'', tdee:'', kcal:'', strategy:'' };
+  }
+  const del = await dbGet('settings', 'deletedProducts');
+  if (del && Array.isArray(del)) state.deletedProducts = del;
 }
 
 async function saveSettings() {
+  // make sure auth info is propagated
+  if (state.user) {
+    state.profile = state.profile || {};
+    state.profile.displayName = state.user.displayName || '';
+    state.profile.photoURL = state.user.photoURL || '';
+    state.profile.targets = state.targets; // include macros targets for friends
+  }
   await dbPut('settings', state.targets, 'targets');
   await dbPut('settings', state.profile||{}, 'profile');
   // sync profile to firestore when logged in
@@ -826,8 +1053,15 @@ async function saveProfile() {
   state.profile.bodyFat = get('prof-bodyfat');
   state.profile.muscle = get('prof-muscle');
   state.profile.bmr = get('prof-bmr');
+  // include auth display info
+  if (state.user) {
+    state.profile.displayName = state.user.displayName || '';
+    state.profile.photoURL = state.user.photoURL || '';
+  }
   await saveSettings();
   notif('Profilo salvato!');
+  if (state.editingProfile) toggleProfileEdit();
+  renderProfileBars();
 }
 
 
@@ -843,10 +1077,11 @@ async function saveDiaryDay(dateStr) {
   const meals = state.diaryCache[dateStr];
   if (meals) {
     await dbPut('diary', { dateKey: dateStr, meals });
-    // if authenticated and using firebase, mirror to firestore
+    // if authenticated and using firebase, mirror to firestore using per-user key
     if (state.useFirebase && state.user) {
       try {
-        const docRef = doc(fbDb, 'diaries', dateStr);
+        const key = `${state.user.uid}_${dateStr}`;
+        const docRef = doc(fbDb, 'diaries', key);
         await setDoc(docRef, { meals });
       } catch (e) {
         console.warn('failed to sync diary to firestore', e);
@@ -976,6 +1211,7 @@ function renderProducts() {
     const mf = filter === 'Tutti' || p.category === filter;
     return mq && mf;
   });
+  const canDelete = state.user && state.user.uid === OWNER_UID;
   grid.innerHTML = prods.map(p => `
     <div class="product-card">
       <div class="product-card-header">
@@ -989,7 +1225,7 @@ function renderProducts() {
           <div class="product-per100">per 100g</div>
           <div style="display:flex;gap:4px">
             <button class="product-edit-btn" onclick="openEditProductModal('${p.id}')">✏️</button>
-            <button class="product-del-btn" onclick="deleteProduct('${p.id}')">✕</button>
+            ${canDelete ? `<button class="product-del-btn" onclick="deleteProduct('${p.id}')">✕</button>` : ''}
           </div>
         </div>
       </div>
@@ -1018,17 +1254,190 @@ async function renderProfileBars() {
     if (b) b.style.width = pct(v, tgt) + '%';
     if (n) n.textContent = `${v}${u} / ${tgt}${u}`;
   });
-  document.getElementById('set-kcal').value = t.kcal;
-  document.getElementById('set-prot').value = t.prot;
-  document.getElementById('set-carb').value = t.carb;
-  document.getElementById('set-fat').value  = t.fat;
 
-  // fill profile input values
+  // populate macro target view & edit values
+  if (t) {
+    const vp = id => document.getElementById(id);
+    if (vp('view-t-macro-kcal')) vp('view-t-macro-kcal').textContent = t.kcal + ' kcal';
+    if (vp('view-t-macro-prot')) vp('view-t-macro-prot').textContent = t.prot + ' g';
+    if (vp('view-t-macro-carb')) vp('view-t-macro-carb').textContent = t.carb + ' g';
+    if (vp('view-t-macro-fat'))  vp('view-t-macro-fat').textContent  = t.fat  + ' g';
+
+    if (vp('set-kcal')) vp('set-kcal').value = t.kcal;
+    if (vp('set-prot')) vp('set-prot').value = t.prot;
+    if (vp('set-carb')) vp('set-carb').value = t.carb;
+    if (vp('set-fat'))  vp('set-fat').value  = t.fat;
+  }
+
+  // fill profile inputs & view spans
   if (state.profile) {
+    // ensure we handle both bodyfat and bodyFat property names
     ['age','height','weight','bmi','bodyfat','muscle','bmr'].forEach(key => {
-      const el = document.getElementById('prof-' + key);
-      if (el && state.profile[key] !== undefined) el.value = state.profile[key];
+      const prop = key === 'bodyfat' ? (state.profile.bodyfat !== undefined ? 'bodyfat' : 'bodyFat') : key;
+      const value = state.profile[prop];
+      const inp = document.getElementById('prof-' + key);
+      if (inp && value !== undefined) inp.value = value;
+      const view = document.getElementById('view-' + key);
+      if (view) {
+        let text = (value !== undefined && value !== '') ? value : '—';
+        // append unit
+        if (prop === 'height') text += ' cm';
+        if (prop === 'weight') text += ' kg';
+        if (prop === 'bodyfat' || prop === 'bodyFat') text += ' %';
+        if (prop === 'muscle') text += ' kg';
+        if (prop === 'bmr') text += ' kcal';
+        view.textContent = text;
+      }
     });
+    // fill goal view and edit, including units in view
+    const goals = state.profile.goals || {};
+    const setVal = (id, val) => { const el=document.getElementById(id); if(el) el.textContent = val||'—'; };
+    setVal('view-goal-weight', goals.weight ? goals.weight + ' kg' : '—');
+    setVal('view-goal-bodyfat', goals.bodyfat ? goals.bodyfat + ' %' : '—');
+    setVal('view-goal-tdee', goals.tdee ? goals.tdee + ' kcal' : '—');
+    setVal('view-goal-kcal', goals.kcal ? goals.kcal + ' kcal' : '—');
+    setVal('view-goal-strategy', goals.strategy);
+    ['goal-weight','goal-bodyfat','goal-tdee','goal-kcal','goal-strategy'].forEach(id=>{
+      const el = document.getElementById(id);
+      if(el && goals[id.replace('goal-','')] !== undefined) el.value = goals[id.replace('goal-','')];
+    });
+  }
+}
+
+// toggle helpers for editable boards
+function toggleProfileEdit() {
+  state.editingProfile = !state.editingProfile;
+  document.getElementById('profile-view').style.display = state.editingProfile ? 'none' : 'block';
+  document.getElementById('profile-edit').style.display = state.editingProfile ? 'block' : 'none';
+  if (state.editingProfile) renderProfileBars();
+}
+function toggleGoalsEdit() {
+  state.editingGoals = !state.editingGoals;
+  document.getElementById('goals-view').style.display = state.editingGoals ? 'none' : 'block';
+  document.getElementById('goals-edit').style.display = state.editingGoals ? 'block' : 'none';
+  if (state.editingGoals) renderProfileBars();
+}
+function toggleTargetsEdit() {
+  state.editingTargets = !state.editingTargets;
+  document.getElementById('targets-view').style.display = state.editingTargets ? 'none' : 'block';
+  document.getElementById('targets-edit').style.display = state.editingTargets ? 'block' : 'none';
+  if (state.editingTargets) renderProfileBars();
+}
+
+async function saveGoals() {
+  state.profile.goals = {
+    weight: document.getElementById('goal-weight').value.trim(),
+    bodyfat: document.getElementById('goal-bodyfat').value.trim(),
+    tdee: document.getElementById('goal-tdee').value.trim(),
+    kcal: document.getElementById('goal-kcal').value.trim(),
+    strategy: document.getElementById('goal-strategy').value.trim(),
+  };
+  await saveSettings();
+  notif('Obiettivi salvati!');
+  toggleGoalsEdit();
+}
+
+// render friends list with their today progress
+async function renderFriends() {
+  const container = document.getElementById('friends-container');
+  container.innerHTML = '';
+  if (!state.useFirebase || !state.user) {
+    container.innerHTML = '<div class="empty-state">Accedi per vedere amici</div>';
+    return;
+  }
+  const today = dateKey(state.currentDate);
+  // fetch all profiles
+  const profSnap = await getDocs(collection(fbDb,'profiles'));
+  const friends = [];
+  profSnap.forEach(docu => {
+    if (docu.id === state.user.uid) return;
+    const data = docu.data();
+    friends.push({ uid: docu.id, ...data });
+  });
+  if (friends.length === 0) {
+    container.innerHTML = '<div class="empty-state">Nessun amico trovato</div>';
+    return;
+  }
+  for (const prof of friends) {
+    // fetch diary for today
+    let meals = JSON.parse(JSON.stringify(MEALS_TEMPLATE));
+    try {
+      const key = `${prof.uid}_${today}`;
+      const ddoc = await getDoc(doc(fbDb,'diaries', key));
+      if (ddoc.exists()) meals = ddoc.data().meals;
+    } catch(e){ }
+    // compute totals
+    let tot = {kcal:0,prot:0,carb:0,fat:0};
+    meals.forEach(m => m.foods.forEach(f => {
+      const mac = calcMacros(f.productId, f.grams);
+      tot.kcal += mac.kcal; tot.prot += mac.prot; tot.carb += mac.carb; tot.fat += mac.fat;
+    }));
+    tot.prot = Math.round(tot.prot*10)/10;
+    tot.carb = Math.round(tot.carb*10)/10;
+    tot.fat  = Math.round(tot.fat*10)/10;
+    const t = prof.targets || {};
+    // build meal html helper
+    const mealHtml = meals.map(meal=>{
+      let mK = 0;
+      meal.foods.forEach(f=>{ mK += calcMacros(f.productId,f.grams).kcal; });
+      const foodsHtml = meal.foods.length===0
+        ? '<div class="empty-state" style="padding:12px 18px">Nessun alimento aggiunto</div>'
+        : meal.foods.map(fi=>{
+            const pr = state.products.find(p=>p.id===fi.productId);
+            if(!pr) return '';
+            const mac = calcMacros(fi.productId, fi.grams);
+            return `<div class="food-row">
+              <div style="font-size:1.1rem">${pr.emoji||'🍴'}</div>
+              <div style="flex:1"><div class="food-name">${pr.name}</div><div class="food-brand">${pr.brand}</div></div>
+              <div class="food-grams">${fi.grams}g</div>
+              <div class="food-macros">
+                <span class="p">P ${mac.prot}g</span>
+                <span class="c">C ${mac.carb}g</span>
+                <span class="f">F ${mac.fat}g</span>
+              </div>
+              <div class="food-kcal-val">${mac.kcal} kcal</div>
+            </div>`;
+          }).join('');
+      return `<div class="meal-block">
+        <div class="meal-header">
+          <div class="meal-name"><span>${meal.emoji}</span>${meal.name}</div>
+          <div class="meal-kcal"><span>${mK}</span> kcal</div>
+        </div>
+        <div class="meal-items">${foodsHtml}</div>
+      </div>`;
+    }).join('');
+    // friend card markup
+    const card = document.createElement('div');
+    card.className = 'friend-card';
+    card.innerHTML = `
+      <div class="friend-header">
+        <img class="friend-photo" src="${prof.photoURL || ''}" alt="">
+        <div class="friend-name">${prof.displayName || 'Anonimo'}</div>
+      </div>
+      <div class="macro-grid" style="margin-bottom:12px">
+        <div class="macro-card kcal">
+          <div class="macro-label">Calorie</div>
+          <div class="macro-value">${tot.kcal}</div>
+          <div class="macro-bar"><div class="macro-bar-fill" style="width:${pct(tot.kcal, t.kcal||1)}%"></div></div>
+        </div>
+        <div class="macro-card prot">
+          <div class="macro-label">Proteine</div>
+          <div class="macro-value">${tot.prot}g</div>
+          <div class="macro-bar"><div class="macro-bar-fill" style="width:${pct(tot.prot, t.prot||1)}%"></div></div>
+        </div>
+        <div class="macro-card carb">
+          <div class="macro-label">Carb</div>
+          <div class="macro-value">${tot.carb}g</div>
+          <div class="macro-bar"><div class="macro-bar-fill" style="width:${pct(tot.carb, t.carb||1)}%"></div></div>
+        </div>
+        <div class="macro-card fat">
+          <div class="macro-label">Grassi</div>
+          <div class="macro-value">${tot.fat}g</div>
+          <div class="macro-bar"><div class="macro-bar-fill" style="width:${pct(tot.fat, t.fat||1)}%"></div></div>
+        </div>
+      </div>
+      ${mealHtml}`;
+    container.appendChild(card);
   }
 }
 
@@ -1037,6 +1446,10 @@ async function changeDay(delta) {
   const d = new Date(state.currentDate);
   d.setDate(d.getDate() + delta);
   state.currentDate = d;
+  // re‑subscribe with new date (and UID if logged in)
+  if (state.useFirebase && state.user) {
+    subscribediary(dateKey(state.currentDate));
+  }
   await render();
 }
 
@@ -1049,10 +1462,20 @@ function showTab(name) {
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('panel-' + name).classList.add('active');
-  const map = { diary: 0, products: 1, profile: 2 };
+  const map = { diary: 0, products: 1, friends: 2, profile: 3 };
   document.querySelectorAll('.tab-btn')[map[name]].classList.add('active');
   if (name === 'products') { renderCategoryPills(); renderProducts(); }
-  if (name === 'profile') renderProfileBars();
+  if (name === 'profile') {
+    // reset edit modes and show only view sections
+    state.editingProfile = state.editingGoals = state.editingTargets = false;
+    ['profile-view','profile-edit','goals-view','goals-edit','targets-view','targets-edit'].forEach(id=>{
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.style.display = id.endsWith('-view') ? 'block' : 'none';
+    });
+    renderProfileBars();
+  }
+  if (name === 'friends') renderFriends();
 }
 
 function setFilter(cat) {
@@ -1089,12 +1512,20 @@ async function clearMeal(mealId) {
 }
 
 async function deleteProduct(id) {
-  if (confirm('Eliminare questo prodotto?')) {
-    await deleteProductDB(id);
+  if (!confirm('Eliminare questo prodotto?')) return;
+  const isOwner = state.user && state.user.uid === OWNER_UID;
+  if (state.useFirebase && state.user && !isOwner) {
+    // non‑owners keep local copy only
+    await dbDelete('products', id);
     state.products = state.products.filter(p => p.id !== id);
     renderCategoryPills(); renderProducts();
-    notif('Prodotto eliminato', '🗑️');
+    notif('Prodotto rimosso localmente (solo il proprietario può eliminare dal cloud)');
+    return;
   }
+  await deleteProductDB(id);
+  state.products = state.products.filter(p => p.id !== id);
+  renderCategoryPills(); renderProducts();
+  notif('Prodotto eliminato', '🗑️');
 }
 
 async function saveTargets() {
@@ -1107,6 +1538,8 @@ async function saveTargets() {
   await saveSettings();
   await render();
   notif('Target salvati!');
+  if (state.editingTargets) toggleTargetsEdit();
+  renderProfileBars();
 }
 
 // ===================== MODALS =====================
@@ -1275,18 +1708,45 @@ async function saveNewProduct() {
       kcal, prot, carb, fat,
     };
     await saveProduct(p);
-    state.products.push(p);
+    // only push locally if subscription hasn't already added it
+    if (!state.products.some(x => x.id === p.id)) {
+      state.products.push(p);
+    }
     notif(name + ' salvato!');
   }
 
   closeModal('modal-add-product');
   renderCategoryPills(); renderProducts();
 }
-// export functions used by inline attributes (modules don't auto‑publish globals)
-[ 'changeDay','showTab','openAddProductModal','openAddFoodModal','openEditFoodModal','openEditProductModal','removeFood',
-  'clearMeal','confirmAddFood','searchFoodForAdd','updateFoodPreview','renderProducts','saveNewProduct','closeModal','saveTargets','saveProfile',
-  'installPWA','toggleAuth','login','logout','deleteProduct','setFilter','selectFood']
-.forEach(n => { if(window[n]===undefined) window[n] = eval(n); });
+// expose necessary functions to global scope without using eval
+window.changeDay = changeDay;
+window.showTab = showTab;
+window.toggleAuth = toggleAuth;
+window.login = login;
+window.logout = logout;
+window.openAddFoodModal = openAddFoodModal;
+window.openEditFoodModal = openEditFoodModal;
+window.confirmAddFood = confirmAddFood;
+window.searchFoodForAdd = searchFoodForAdd;
+window.selectFood = selectFood;
+window.updateFoodPreview = updateFoodPreview;
+window.removeFood = removeFood;
+window.clearMeal = clearMeal;
+window.openAddProductModal = openAddProductModal;
+window.openEditProductModal = openEditProductModal;
+window.saveNewProduct = saveNewProduct;
+window.deleteProduct = deleteProduct;
+window.renderProducts = renderProducts;
+window.setFilter = setFilter;
+window.saveTargets = saveTargets;
+window.saveProfile = saveProfile;
+window.saveGoals = saveGoals;
+window.toggleProfileEdit = toggleProfileEdit;
+window.toggleGoalsEdit = toggleGoalsEdit;
+window.toggleTargetsEdit = toggleTargetsEdit;
+window.closeModal = closeModal;
+window.installPWA = installPWA;
+window.renderFriends = renderFriends;
 
 // ===================== PWA INSTALL =====================
 let deferredPrompt = null;
@@ -1309,6 +1769,23 @@ window.addEventListener('appinstalled', () => {
   document.getElementById('install-banner').classList.remove('show');
   notif('App installata con successo! 🎉');
 });
+
+// network status indicator
+function updateNetworkStatus() {
+  const ind = document.getElementById('net-indicator');
+  if (ind) ind.textContent = navigator.onLine ? '🟢' : '⚫';
+}
+window.addEventListener('online', () => {
+  updateNetworkStatus();
+  notif('Connessione ripristinata ✓');
+  syncCachedDiaries();
+  syncCachedProducts();
+});
+window.addEventListener('offline', () => {
+  updateNetworkStatus();
+  notif('Modalità offline — i dati verranno sincronizzati al rientro');
+});
+updateNetworkStatus();
 
 // ===================== SERVICE WORKER =====================
 if ('serviceWorker' in navigator) {
