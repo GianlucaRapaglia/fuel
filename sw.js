@@ -1,5 +1,5 @@
 // bump this value each time you deploy to force clients to refresh caches
-const CACHE_NAME = 'fuel-v2';
+const CACHE_NAME = 'fuel-v3';
 const ASSETS = [
   './index.html',
   './manifest.json',
@@ -10,6 +10,10 @@ const ASSETS = [
 
 // helper to fetch-index-fallback (avoids serving stale index when online)
 function fetchAndCache(request) {
+  if (request.method !== 'GET') {
+    return fetch(request);
+  }
+
   return fetch(request).then(res => {
     const copy = res.clone();
     caches.open(CACHE_NAME).then(c => c.put(request, copy));

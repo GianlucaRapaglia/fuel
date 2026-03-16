@@ -260,7 +260,13 @@
 
 <div class="app" id="app" style="display:none">
   <header>
-    <div class="logo">FUEL<span>.</span><span id="net-indicator">⚫</span></div>
+    <div class="logo">FUEL<span>.</span></div>
+    <span id="online-dot" title="Online" style="
+      width:8px;height:8px;border-radius:50%;
+      background:var(--accent);display:inline-block;
+      box-shadow:0 0 6px var(--accent);
+      transition:background 0.3s;
+    "></span>
     <div class="date-nav">
       <button onclick="changeDay(-1)">‹</button>
       <span id="current-date"></span>
@@ -513,8 +519,8 @@
       <div style="font-size:0.75rem;color:var(--text2);font-family:'DM Mono',monospace" id="sfood-macros"></div>
     </div>
     <div class="form-group">
-      <label class="form-label">Quantità (g)</label>
-      <input type="number" class="form-input" id="food-grams-input" value="100" oninput="updateFoodPreview()">
+      <label class="form-label" id="food-quantity-label">Quantità (g)</label>
+      <input type="number" class="form-input" id="food-grams-input" value="100" oninput="updateFoodPreview()" min="1" step="1">
     </div>
     <div id="food-preview" style="display:none;font-size:0.8rem;font-family:'DM Mono',monospace;color:var(--text2);margin-top:4px"></div>
     <div class="modal-actions">
@@ -557,6 +563,19 @@
         <input type="text" class="form-input" id="np-emoji" placeholder="🥩" maxlength="2">
       </div>
     </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Unità</label>
+        <select class="form-input" id="np-unit" onchange="togglePieceWeightField()">
+          <option value="g">g</option>
+          <option value="pcs">pezzi (pcs)</option>
+        </select>
+      </div>
+      <div class="form-group" id="np-piece-weight-wrap" style="display:none">
+        <label class="form-label">Peso per pezzo (g)</label>
+        <input type="number" class="form-input" id="np-piece-weight" placeholder="100" min="1" step="1" value="100">
+      </div>
+    </div>
     <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text2);font-family:'DM Mono',monospace;margin-bottom:10px;">Valori per 100g</div>
     <div class="form-row">
       <div class="form-group">
@@ -592,6 +611,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js';
 import { getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js';
 import { getAuth, signInWithPopup, signOut, GoogleAuthProvider, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-auth.js';
+import DEFAULT_PRODUCTS from './products_default.js';
 
 // ===================== Firebase CONFIG =====================
 const firebaseConfig = {
@@ -617,6 +637,7 @@ let state = {
   targets: { kcal: 2300, prot: 158, carb: 260, fat: 64 },
   products: [],
   diaryCache: {}, // loaded days
+  dirtyDiary: {}, // date keys modified locally and need sync
   activeFilter: 'Tutti',
   user: null,
   useFirebase: false,
@@ -645,15 +666,15 @@ onAuthStateChanged(fbAuth, user => {
       ui.innerHTML = '';
     }
   }
-  if (user && dateKey(state.currentDate)) {
-    subscribediary(dateKey(state.currentDate));
-  }
   if (!user) {
     openModal('modal-login');
   } else {
     closeModal('modal-login');
-    // first, push any days we saved locally before login
-    syncCachedDiaries().catch(() => {});
+    // push dirty local data to Firestore FIRST, then subscribe so the
+    // snapshot sees the already-merged state and never overwrites local changes
+    syncCachedDiaries().catch(() => {}).finally(() => {
+      if (dateKey(state.currentDate)) subscribediary(dateKey(state.currentDate));
+    });
     // push local products and start listening
     syncCachedProducts().catch(() => {});
     subscribeProducts();
@@ -681,7 +702,13 @@ function login() {
   const provider = new GoogleAuthProvider();
   signInWithPopup(fbAuth, provider).catch(e => console.warn('login failed', e));
 }
-function logout() { signOut(fbAuth); }
+function logout() {
+  if (diaryUnsubscribe) { diaryUnsubscribe(); diaryUnsubscribe = null; }
+  if (productsUnsub) { productsUnsub(); productsUnsub = null; }
+  state.products = [];
+  state.diaryCache = {};
+  signOut(fbAuth);
+}
 function toggleAuth() { state.user ? logout() : login(); }
 
 // subscribe to a single diary document for real-time updates
@@ -694,7 +721,13 @@ function subscribediary(dateStr) {
   const docRef = doc(fbDb, 'diaries', key);
   diaryUnsubscribe = onSnapshot(docRef, snap => {
     if (snap.exists()) {
-      state.diaryCache[dateStr] = snap.data().meals;
+      // Safety guard: if we have unsaved local changes for this date,
+      // do NOT overwrite them — syncCachedDiaries will push them first.
+      if (state.dirtyDiary[dateStr]) return;
+      const meals = snap.data().meals;
+      state.diaryCache[dateStr] = meals;
+      // keep local cache in sync with server
+      dbPut('diary', { dateKey: dateStr, meals }).catch(() => {});
       renderMeals(); renderSummary();
     }
   });
@@ -710,9 +743,10 @@ function subscribeProducts() {
     for (const change of snap.docChanges()) {
       const data = change.doc.data();
       if (change.type === 'added' || change.type === 'modified') {
-        state.products = state.products.filter(p => p.id !== data.id);
-        state.products.push(data);
-        dbPut('products', data).catch(() => {});
+        const normalized = normalizeProduct(data);
+        state.products = state.products.filter(p => p.id !== normalized.id);
+        state.products.push(normalized);
+        dbPut('products', normalized).catch(() => {});
       } else if (change.type === 'removed') {
         state.products = state.products.filter(p => p.id !== data.id);
         dbDelete('products', data.id).catch(() => {});
@@ -758,12 +792,16 @@ async function syncCachedProducts() {
 // upload any locally cached days to Firestore
 async function syncCachedDiaries() {
   if (!state.useFirebase || !state.user) return;
-  for (const dateStr of Object.keys(state.diaryCache)) {
+  for (const dateStr of Object.keys(state.dirtyDiary || {})) {
+    if (!state.dirtyDiary[dateStr]) continue;
+    const meals = state.diaryCache[dateStr];
+    if (!meals) continue;
     try {
-      const meals = state.diaryCache[dateStr];
       const key = `${state.user.uid}_${dateStr}`;
       const docRef = doc(fbDb,'diaries',key);
       await setDoc(docRef,{meals},{merge:true});
+      delete state.dirtyDiary[dateStr];
+      await dbPut('settings', state.dirtyDiary, 'dirtyDiary').catch(() => {});
     } catch(e){ console.warn('sync diary failed', e); }
   }
 }
@@ -826,108 +864,7 @@ function dbGetAll(store) {
 // ===================== PRODUCTS DEFAULT =====================
 let productCtx = { editId: null };
 
-const PRODUCTS_DEFAULT = [
-  { id: 'p1', name: 'Petto di Pollo', brand: 'Generico', category: 'Proteine', emoji: '🍗', kcal: 165, prot: 31, carb: 0, fat: 3.6 },
-  { id: 'p2', name: 'Tonno al Naturale', brand: 'Rio Mare', category: 'Proteine', emoji: '🐟', kcal: 103, prot: 23, carb: 0, fat: 1.2 },
-  { id: 'p3', name: 'Uova Intere', brand: 'Generico', category: 'Proteine', emoji: '🥚', kcal: 155, prot: 13, carb: 1.1, fat: 10.6 },
-  { id: 'p4', name: 'Albumi Liquidi', brand: 'Eurovo', category: 'Proteine', emoji: '🥛', kcal: 47, prot: 10.8, carb: 0.4, fat: 0.2 },
-  { id: 'p5', name: 'Salmone Fresco', brand: 'Generico', category: 'Proteine', emoji: '🐠', kcal: 208, prot: 20, carb: 0, fat: 13.4 },
-  { id: 'p6', name: 'Manzo Macinato 5%', brand: 'Generico', category: 'Proteine', emoji: '🥩', kcal: 137, prot: 21, carb: 0, fat: 5 },
-  { id: 'p7', name: 'Merluzzo', brand: 'Generico', category: 'Proteine', emoji: '🐟', kcal: 82, prot: 18, carb: 0, fat: 0.7 },
-  { id: 'p8', name: 'Whey Protein', brand: 'Optimum Nutrition', category: 'Integratori', emoji: '💪', kcal: 376, prot: 80, carb: 6, fat: 4 },
-  { id: 'p9', name: 'Whey Isolate', brand: 'MyProtein', category: 'Integratori', emoji: '⚗️', kcal: 371, prot: 83, carb: 4, fat: 2.4 },
-  { id: 'c1', name: 'Riso Bianco (cotto)', brand: 'Generico', category: 'Carboidrati', emoji: '🍚', kcal: 130, prot: 2.7, carb: 28, fat: 0.3 },
-  { id: 'c2', name: 'Pasta (cruda)', brand: 'Barilla', category: 'Carboidrati', emoji: '🍝', kcal: 352, prot: 12.5, carb: 71, fat: 1.5 },
-  { id: 'c3', name: 'Avena', brand: 'Quaker', category: 'Carboidrati', emoji: '🌾', kcal: 389, prot: 17, carb: 66, fat: 7 },
-  { id: 'c4', name: 'Patate Dolci', brand: 'Generico', category: 'Carboidrati', emoji: '🍠', kcal: 86, prot: 1.6, carb: 20, fat: 0.1 },
-  { id: 'c5', name: 'Pane Integrale', brand: 'Generico', category: 'Carboidrati', emoji: '🍞', kcal: 247, prot: 9, carb: 41, fat: 3.5 },
-  { id: 'c6', name: 'Quinoa (cotta)', brand: 'Generico', category: 'Carboidrati', emoji: '🌿', kcal: 120, prot: 4.4, carb: 21, fat: 1.9 },
-  { id: 'f1', name: 'Banana', brand: 'Generico', category: 'Frutta', emoji: '🍌', kcal: 89, prot: 1.1, carb: 23, fat: 0.3 },
-  { id: 'f2', name: 'Mela', brand: 'Generico', category: 'Frutta', emoji: '🍎', kcal: 52, prot: 0.3, carb: 14, fat: 0.2 },
-  { id: 'f3', name: 'Frutti di Bosco', brand: 'Generico', category: 'Frutta', emoji: '🍇', kcal: 57, prot: 0.7, carb: 13, fat: 0.3 },
-  { id: 'f4', name: 'Kiwi', brand: 'Generico', category: 'Frutta', emoji: '🥝', kcal: 61, prot: 1.1, carb: 15, fat: 0.5 },
-  { id: 'l1', name: 'Ricotta Magra', brand: 'Granarolo', category: 'Latticini', emoji: '🧀', kcal: 138, prot: 11, carb: 3, fat: 9 },
-  { id: 'l2', name: 'Yogurt Greco 0%', brand: 'Fage', category: 'Latticini', emoji: '🥛', kcal: 59, prot: 10, carb: 3.6, fat: 0.3 },
-  { id: 'l3', name: 'Fiocchi di Latte', brand: 'Latti Vivi', category: 'Latticini', emoji: '🧀', kcal: 98, prot: 11, carb: 3.4, fat: 4.3 },
-  { id: 'l4', name: 'Latte Scremato', brand: 'Parmalat', category: 'Latticini', emoji: '🥛', kcal: 35, prot: 3.4, carb: 5, fat: 0.1 },
-  { id: 'v1', name: 'Broccoli', brand: 'Generico', category: 'Verdura', emoji: '🥦', kcal: 34, prot: 2.8, carb: 7, fat: 0.4 },
-  { id: 'v2', name: 'Spinaci', brand: 'Generico', category: 'Verdura', emoji: '🥬', kcal: 23, prot: 2.9, carb: 3.6, fat: 0.4 },
-  { id: 'v3', name: 'Zucchine', brand: 'Generico', category: 'Verdura', emoji: '🥒', kcal: 17, prot: 1.2, carb: 3.1, fat: 0.3 },
-  { id: 'g1', name: 'Olio EVO', brand: 'Monini', category: 'Altro', emoji: '🫒', kcal: 884, prot: 0, carb: 0, fat: 100 },
-  { id: 'g2', name: 'Mandorle', brand: 'Generico', category: 'Snack', emoji: '🥜', kcal: 579, prot: 21, carb: 22, fat: 50 },
-  { id: 'g3', name: 'Burro di Arachidi', brand: 'Biopratico', category: 'Snack', emoji: '🥜', kcal: 588, prot: 25, carb: 20, fat: 50 },
-  { id: 'i1', name: 'Creatina Monoidrato', brand: 'Creapure', category: 'Integratori', emoji: '⚡', kcal: 0, prot: 0, carb: 0, fat: 0 },
-  { id: 'i2', name: 'Barretta Proteica', brand: 'Fulfil', category: 'Integratori', emoji: '🍫', kcal: 210, prot: 20, carb: 18, fat: 5 },
-  // additional defaults
-  { id: 'c7', name: 'Muesli Cameo', brand: 'Cameo', category: 'Carboidrati', emoji: '🥣', kcal: 350, prot: 7, carb: 60, fat: 8 },
-  { id: 's1', name: 'Miele Millefiori', brand: 'Rigoni di Asiago', category: 'Altro', emoji: '🍯', kcal: 304, prot: 0.3, carb: 82, fat: 0 },
-  { id: 'l5', name: 'Parmigiano Reggiano', brand: 'Parmareggio', category: 'Latticini', emoji: '🧀', kcal: 431, prot: 38, carb: 4.1, fat: 29 },
-  { id: 'p10', name: 'Prosciutto Crudo', brand: 'San Daniele', category: 'Proteine', emoji: '🍖', kcal: 242, prot: 26, carb: 0, fat: 14 },
-  { id: 'd1', name: 'Pane Bauletto Integrale', brand: 'Mulino Bianco', category: 'Carboidrati', emoji: '🍞', kcal: 250, prot: 9, carb: 45, fat: 3.7 },
-  { id: 'f5', name: 'Arancia', brand: 'Generico', category: 'Frutta', emoji: '🍊', kcal: 47, prot: 0.9, carb: 12, fat: 0.1 },
-  { id: 'v4', name: 'Pomodoro', brand: 'Generico', category: 'Verdura', emoji: '🍅', kcal: 18, prot: 0.9, carb: 3.9, fat: 0.2 },
-  { id: 's2', name: 'Biscotti Plasmon', brand: 'Plasmon', category: 'Snack', emoji: '🍪', kcal: 450, prot: 7, carb: 75, fat: 15 },
-  { id: 'i3', name: 'Barretta Granola', brand: 'Kellogg\'s', category: 'Integratori', emoji: '🍫', kcal: 190, prot: 4, carb: 28, fat: 7 },
-  { id: 'g4', name: 'Olio di Oliva', brand: 'Bertolli', category: 'Altro', emoji: '🫒', kcal: 884, prot: 0, carb: 0, fat: 100 },
-  // famous Italian dishes
-  { id: 'd2', name: 'Spaghetti Carbonara', brand: 'Generico', category: 'Pasti', emoji: '🍝', kcal: 400, prot: 15, carb: 50, fat: 18 },
-  { id: 'd3', name: 'Pasta all’Amatriciana', brand: 'Generico', category: 'Pasti', emoji: '🍝', kcal: 380, prot: 12, carb: 48, fat: 16 },
-  { id: 'd4', name: 'Lasagna alla Bolognese', brand: 'Generico', category: 'Pasti', emoji: '🍲', kcal: 300, prot: 15, carb: 20, fat: 18 },
-  { id: 'd5', name: 'Pizza Margherita', brand: 'Generico', category: 'Pasti', emoji: '🍕', kcal: 270, prot: 10, carb: 33, fat: 10 },
-  { id: 'd6', name: 'Pastiera Napoletana', brand: 'Generico', category: 'Dolci', emoji: '🥧', kcal: 380, prot: 7, carb: 45, fat: 18 },
-  { id: 'd7', name: 'Cannolo Siciliano', brand: 'Generico', category: 'Dolci', emoji: '🥐', kcal: 350, prot: 6, carb: 40, fat: 18 },
-
-  // --- Italian Pantry & Fridge Additions ---
-  { id: 'p11', name: 'Bresaola della Valtellina', brand: 'Rigamonti', category: 'Proteine', emoji: '🥩', kcal: 151, prot: 33, carb: 0.5, fat: 2 },
-  { id: 'p12', name: 'Tacchino Arrosto', brand: 'Aia', category: 'Proteine', emoji: '🥪', kcal: 100, prot: 20, carb: 1, fat: 2 },
-  { id: 'l6', name: 'Mozzarella di Bufala', brand: 'Garofalo', category: 'Latticini', emoji: '⚪', kcal: 288, prot: 14, carb: 1.5, fat: 25 },
-  { id: 'l7', name: 'Burrata', brand: 'Generico', category: 'Latticini', emoji: '🧀', kcal: 254, prot: 12, carb: 2, fat: 22 },
-  { id: 'l8', name: 'Skyr Bianco', brand: 'Lidl (Milbona)', category: 'Latticini', emoji: '🥣', kcal: 63, prot: 11, carb: 4, fat: 0.2 },
-  { id: 'c8', name: 'Fette Biscottate', brand: 'Mulino Bianco', category: 'Carboidrati', emoji: '🍞', kcal: 426, prot: 12, carb: 72, fat: 8 },
-  { id: 'c9', name: 'Gnocchi di Patate', brand: 'Giovanni Rana', category: 'Carboidrati', emoji: '🥔', kcal: 160, prot: 3.5, carb: 35, fat: 0.5 },
-  { id: 'c10', name: 'Gallette di Mais', brand: 'Fiorentini', category: 'Carboidrati', emoji: '🥯', kcal: 385, prot: 7, carb: 82, fat: 2.5 },
-  { id: 'c11', name: 'Farro Perlato (crudo)', brand: 'Poggio del Farro', category: 'Carboidrati', emoji: '🌾', kcal: 340, prot: 14, carb: 65, fat: 2.5 },
-  { id: 'v5', name: 'Passata di Pomodoro', brand: 'Mutti', category: 'Verdura', emoji: '🍅', kcal: 36, prot: 1.6, carb: 5.1, fat: 0.2 },
-  
-  // --- Classic Italian Breakfast & Snacks ---
-  { id: 's3', name: 'Nutella', brand: 'Ferrero', category: 'Snack', emoji: '🍫', kcal: 539, prot: 6.3, carb: 57.5, fat: 30.9 },
-  { id: 's4', name: 'Taralli Pugliesi', brand: 'Generico', category: 'Snack', emoji: '🥨', kcal: 460, prot: 9, carb: 65, fat: 18 },
-  { id: 's5', name: 'Pavesini', brand: 'Pavesi', category: 'Snack', emoji: '🍪', kcal: 395, prot: 7.5, carb: 83, fat: 3.5 },
-  { id: 's6', name: 'Biscotti Gocciole', brand: 'Pavesi', category: 'Snack', emoji: '🍪', kcal: 480, prot: 6.5, carb: 67, fat: 20 },
-
-  // --- More Prepared Dishes ---
-  { id: 'd8', name: 'Risotto ai Funghi', brand: 'Generico', category: 'Pasti', emoji: '🥘', kcal: 150, prot: 3, carb: 25, fat: 4 },
-  { id: 'd9', name: 'Parmigiana di Melanzane', brand: 'Generico', category: 'Pasti', emoji: '🍆', kcal: 180, prot: 7, carb: 8, fat: 14 },
-  { id: 'd10', name: 'Polenta (cotta)', brand: 'Generico', category: 'Carboidrati', emoji: '🌽', kcal: 85, prot: 2, carb: 18, fat: 0.5 },
-  { id: 'd11', name: 'Tiramisù', brand: 'Generico', category: 'Dolci', emoji: '🍰', kcal: 300, prot: 5, carb: 35, fat: 15 },
-
-  // --- Healthy Fats & Nuts (Noci, Mandorle, etc.) ---
-  { id: 'g5', name: 'Noci Sgusciate', brand: 'Generico', category: 'Snack', emoji: '🥜', kcal: 654, prot: 15, carb: 14, fat: 65 },
-  { id: 'g6', name: 'Pistacchi Tostati', brand: 'Generico', category: 'Snack', emoji: '🟢', kcal: 562, prot: 20, carb: 27, fat: 45 },
-  { id: 'g7', name: 'Nocciole Piemonte', brand: 'Generico', category: 'Snack', emoji: '🌰', kcal: 628, prot: 15, carb: 17, fat: 61 },
-  { id: 'g8', name: 'Burro d\'Arachidi 100%', brand: 'Prozis / MyProtein', category: 'Snack', emoji: '🥜', kcal: 588, prot: 28, carb: 12, fat: 49 },
-  { id: 'g9', name: 'Semi di Chia', brand: 'Generico', category: 'Altro', emoji: '🧉', kcal: 486, prot: 17, carb: 42, fat: 31 },
-  { id: 'g10', name: 'Semi di Zucca', brand: 'Generico', category: 'Snack', emoji: '🎃', kcal: 559, prot: 30, carb: 11, fat: 49 },
-
-  // --- High-Protein / Fit-Friendly Italian Picks ---
-  { id: 'p13', name: 'Fiocchi di Latte Light', brand: 'Jocca', category: 'Latticini', emoji: '🥣', kcal: 66, prot: 10, carb: 1.5, fat: 2 },
-  { id: 'p14', name: 'Fesa di Tacchino', brand: 'Aia / Negroni', category: 'Proteine', emoji: '🍗', kcal: 104, prot: 24, carb: 1, fat: 1 },
-  { id: 'p15', name: 'Seitan Naturale', brand: 'Compagnia Italiana', category: 'Proteine', emoji: '🌾', kcal: 120, prot: 25, carb: 4, fat: 0.5 },
-  { id: 'l9', name: 'Quark Magro', brand: 'Exquisa', category: 'Latticini', emoji: '🥛', kcal: 48, prot: 8.5, carb: 3.5, fat: 0.2 },
-  
-  // --- Complex Carbs & "Fit" Volume ---
-  { id: 'c12', name: 'Riso Venere (nero)', brand: 'Riso Scotti', category: 'Carboidrati', emoji: '🍚', kcal: 345, prot: 8, carb: 64, fat: 2 },
-  { id: 'c13', name: 'Pane di Segale', brand: 'Pema', category: 'Carboidrati', emoji: '🍞', kcal: 193, prot: 5, carb: 36, fat: 1.2 },
-  { id: 'c14', name: 'Pasta Integrale', brand: 'La Molisana', category: 'Carboidrati', emoji: '🍝', kcal: 350, prot: 14, carb: 65, fat: 2.5 },
-  { id: 'c15', name: 'Cous Cous (crudo)', brand: 'Barilla', category: 'Carboidrati', emoji: '🥣', kcal: 356, prot: 12, carb: 72, fat: 1.5 },
-
-  // --- Healthy Pantry Staples ---
-  { id: 'v6', name: 'Hummus di Ceci', brand: 'Noa / Esselunga', category: 'Snack', emoji: '🥙', kcal: 166, prot: 5, carb: 8, fat: 12 },
-  { id: 'v7', name: 'Edamame', brand: 'Bonduelle', category: 'Proteine', emoji: '🫛', kcal: 122, prot: 11, carb: 10, fat: 5 },
-  { id: 'f6', name: 'Avocado', brand: 'Generico', category: 'Frutta', emoji: '🥑', kcal: 160, prot: 2, carb: 9, fat: 15 },
-  { id: 'f7', name: 'Pompelmo', brand: 'Generico', category: 'Frutta', emoji: '🍊', kcal: 42, prot: 0.8, carb: 11, fat: 0.1 }
-
-];
+const PRODUCTS_DEFAULT = DEFAULT_PRODUCTS;
 
 const MEALS_TEMPLATE = [
   { id: 'breakfast', name: 'Colazione', emoji: '🌅', foods: [] },
@@ -947,26 +884,42 @@ async function loadProducts() {
   if (saved.length === 0) {
     // First run: seed defaults
     for (const p of PRODUCTS_DEFAULT) await dbPut('products', p);
-    state.products = [...PRODUCTS_DEFAULT];
+    state.products = PRODUCTS_DEFAULT.map(normalizeProduct);
   } else {
-    state.products = saved;
-    // also ensure any new defaults are inserted locally (migration path)
+    state.products = saved.map(normalizeProduct);
+    // migration: add new defaults and patch unit/pieceWeight on existing ones
     const added = [];
-    for (const p of PRODUCTS_DEFAULT) {
-      if (!state.products.some(x => x.id === p.id)) {
-        state.products.push(p);
-        await dbPut('products', p);
-        added.push(p);
+    const patched = [];
+    for (const def of PRODUCTS_DEFAULT) {
+      const idx = state.products.findIndex(x => x.id === def.id);
+      if (idx === -1) {
+        // new default not yet in local db
+        const normalized = normalizeProduct(def);
+        state.products.push(normalized);
+        await dbPut('products', normalized);
+        added.push(normalized);
+      } else {
+        // existing product: re-apply unit and pieceWeight from the canonical default
+        const existing = state.products[idx];
+        const correctUnit = def.unit === 'pcs' ? 'pcs' : 'g';
+        const correctPieceWeight = correctUnit === 'pcs' ? (Number(def.pieceWeight) || 100) : 0;
+        if (existing.unit !== correctUnit || existing.pieceWeight !== correctPieceWeight) {
+          const updated = { ...existing, unit: correctUnit, pieceWeight: correctPieceWeight };
+          state.products[idx] = updated;
+          await dbPut('products', updated);
+          patched.push(updated);
+        }
       }
     }
-    // if user is logged in and firebase enabled, push the newly added defaults
-    if (added.length && state.useFirebase && state.user) {
-      for (const p of added) {
+    // push new and patched defaults to Firestore if logged in
+    const toSync = [...added, ...patched];
+    if (toSync.length && state.useFirebase && state.user) {
+      for (const p of toSync) {
         try {
           const prodRef = doc(fbDb, 'products', p.id);
           await setDoc(prodRef, p, { merge: true });
         } catch (e) {
-          console.warn('failed to push default product to firestore', e);
+          console.warn('failed to sync default product to firestore', e);
         }
       }
     }
@@ -1024,6 +977,8 @@ async function loadSettings() {
   }
   const del = await dbGet('settings', 'deletedProducts');
   if (del && Array.isArray(del)) state.deletedProducts = del;
+  const dirty = await dbGet('settings', 'dirtyDiary');
+  if (dirty && typeof dirty === 'object') state.dirtyDiary = dirty;
 }
 
 async function saveSettings() {
@@ -1077,12 +1032,16 @@ async function saveDiaryDay(dateStr) {
   const meals = state.diaryCache[dateStr];
   if (meals) {
     await dbPut('diary', { dateKey: dateStr, meals });
+    state.dirtyDiary[dateStr] = true;
+    await dbPut('settings', state.dirtyDiary, 'dirtyDiary').catch(() => {});
     // if authenticated and using firebase, mirror to firestore using per-user key
     if (state.useFirebase && state.user) {
       try {
         const key = `${state.user.uid}_${dateStr}`;
         const docRef = doc(fbDb, 'diaries', key);
-        await setDoc(docRef, { meals });
+        await setDoc(docRef, { meals }, { merge: true });
+        delete state.dirtyDiary[dateStr];
+        await dbPut('settings', state.dirtyDiary, 'dirtyDiary').catch(() => {});
       } catch (e) {
         console.warn('failed to sync diary to firestore', e);
       }
@@ -1094,15 +1053,24 @@ async function saveDiaryDay(dateStr) {
 function dateKey(d) { return d.toISOString().split('T')[0]; }
 function formatDate(d) { return d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' }); }
 
-function calcMacros(pId, grams) {
+function normalizeProduct(p) {
+  if (!p) return null;
+  const unit = p.unit === 'pcs' ? 'pcs' : 'g';
+  const pieceWeight = unit === 'pcs' ? (Number(p.pieceWeight) || 100) : 0;
+  return { ...p, unit, pieceWeight };
+}
+
+function calcMacros(pId, quantity) {
   const p = state.products.find(x => x.id === pId);
   if (!p) return { kcal: 0, prot: 0, carb: 0, fat: 0 };
+  const prod = normalizeProduct(p);
+  const grams = prod.unit === 'pcs' ? (quantity * prod.pieceWeight) : quantity;
   const f = grams / 100;
   return {
-    kcal: Math.round(p.kcal * f),
-    prot: Math.round(p.prot * f * 10) / 10,
-    carb: Math.round(p.carb * f * 10) / 10,
-    fat:  Math.round(p.fat  * f * 10) / 10,
+    kcal: Math.round(prod.kcal * f),
+    prot: Math.round(prod.prot * f * 10) / 10,
+    carb: Math.round(prod.carb * f * 10) / 10,
+    fat:  Math.round(prod.fat  * f * 10) / 10,
   };
 }
 
@@ -1174,7 +1142,7 @@ async function renderMeals() {
           return `<div class="food-row">
             <div style="font-size:1.1rem">${prod.emoji || '🍴'}</div>
             <div style="flex:1"><div class="food-name">${prod.name}</div><div class="food-brand">${prod.brand}</div></div>
-            <div class="food-grams">${fi.grams}g</div>
+            <div class="food-grams">${prod.unit === 'pcs' ? `${fi.grams} pz` : `${fi.grams}g`}</div>
             <div class="food-macros">
               <span class="p">P ${mac.prot}g</span>
               <span class="c">C ${mac.carb}g</span>
@@ -1222,7 +1190,7 @@ function renderProducts() {
           <div class="category-tag">${p.category}</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-          <div class="product-per100">per 100g</div>
+          <div class="product-per100">${p.unit === 'pcs' ? `per 1 pz (${p.pieceWeight||100}g)` : 'per 100g'}</div>
           <div style="display:flex;gap:4px">
             <button class="product-edit-btn" onclick="openEditProductModal('${p.id}')">✏️</button>
             ${canDelete ? `<button class="product-del-btn" onclick="deleteProduct('${p.id}')">✕</button>` : ''}
@@ -1545,6 +1513,32 @@ async function saveTargets() {
 // ===================== MODALS =====================
 function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+function togglePieceWeightField() {
+  const unit = document.getElementById('np-unit').value;
+  const wrap = document.getElementById('np-piece-weight-wrap');
+  if (wrap) wrap.style.display = unit === 'pcs' ? 'block' : 'none';
+}
+
+function updateFoodQuantityLabel(product) {
+  const label = document.getElementById('food-quantity-label');
+  const input = document.getElementById('food-grams-input');
+  if (!label || !input) return;
+
+  if (!product || product.unit !== 'pcs') {
+    label.textContent = 'Quantità (g)';
+    input.min = 1;
+    input.step = 1;
+    if (!product) {
+      input.value = 100;
+    }
+  } else {
+    label.textContent = 'Quantità (pezzi)';
+    input.min = 1;
+    input.step = 1;
+  }
+}
+
 document.querySelectorAll('.modal-overlay').forEach(mo => {
   mo.addEventListener('click', e => {
     if (e.target === mo && mo.id !== 'modal-login') mo.classList.remove('open');
@@ -1558,6 +1552,7 @@ function openAddFoodModal(mealId) {
   document.getElementById('selected-food-info').style.display = 'none';
   document.getElementById('food-preview').style.display = 'none';
   document.getElementById('food-grams-input').value = '100';
+  updateFoodQuantityLabel(null);
   openModal('modal-add-food');
   setTimeout(() => document.getElementById('food-search-input').focus(), 100);
 }
@@ -1578,6 +1573,7 @@ function openEditFoodModal(mealId, idx) {
     document.getElementById('sfood-macros').textContent = `Per 100g: ${prod.kcal} kcal | P ${prod.prot}g | C ${prod.carb}g | F ${prod.fat}g`;
     document.getElementById('selected-food-info').style.display = 'block';
     document.getElementById('food-grams-input').value = fi.grams;
+    updateFoodQuantityLabel(prod);
     updateFoodPreview();
     openModal('modal-add-food');
     setTimeout(() => document.getElementById('food-grams-input').focus(), 100);
@@ -1610,27 +1606,37 @@ function selectFood(id) {
   document.getElementById('food-search-results').style.display = 'none';
   document.getElementById('food-search-input').value = prod.name;
   document.getElementById('sfood-name').textContent = (prod.emoji||'') + ' ' + prod.name + ' — ' + prod.brand;
-  document.getElementById('sfood-macros').textContent = `Per 100g: ${prod.kcal} kcal | P ${prod.prot}g | C ${prod.carb}g | F ${prod.fat}g`;
+  const macrosText = `Per 100g: ${prod.kcal} kcal | P ${prod.prot}g | C ${prod.carb}g | F ${prod.fat}g`;
+  if (prod.unit === 'pcs') {
+    const perPiece = calcMacros(prod.id, 1);
+    document.getElementById('sfood-macros').textContent = `${macrosText} | Per 1 pz (${prod.pieceWeight || 100}g): ${perPiece.kcal} kcal | P ${perPiece.prot}g | C ${perPiece.carb}g | F ${perPiece.fat}g`;
+    document.getElementById('food-grams-input').value = '1';
+  } else {
+    document.getElementById('sfood-macros').textContent = macrosText;
+    document.getElementById('food-grams-input').value = '100';
+  }
   document.getElementById('selected-food-info').style.display = 'block';
+  updateFoodQuantityLabel(prod);
   updateFoodPreview();
   document.getElementById('food-grams-input').focus();
 }
 
 function updateFoodPreview() {
   const prod = addFoodCtx.selectedProduct;
-  const grams = parseFloat(document.getElementById('food-grams-input').value) || 0;
+  const qty = parseFloat(document.getElementById('food-grams-input').value) || 0;
   const el = document.getElementById('food-preview');
-  if (!prod || !grams) { el.style.display = 'none'; return; }
-  const mac = calcMacros(prod.id, grams);
+  if (!prod || !qty) { el.style.display = 'none'; return; }
+  const mac = calcMacros(prod.id, qty);
+  const displayQty = prod.unit === 'pcs' ? `${qty} pz (${qty * (prod.pieceWeight || 100)}g)` : `${qty}g`;
   el.style.display = 'block';
-  el.innerHTML = `Per ${grams}g → <span style="color:var(--kcal)">${mac.kcal} kcal</span> | <span style="color:var(--protein)">P ${mac.prot}g</span> | <span style="color:var(--carbs)">C ${mac.carb}g</span> | <span style="color:var(--fat)">F ${mac.fat}g</span>`;
+  el.innerHTML = `Per ${displayQty} → <span style="color:var(--kcal)">${mac.kcal} kcal</span> | <span style="color:var(--protein)">P ${mac.prot}g</span> | <span style="color:var(--carbs)">C ${mac.carb}g</span> | <span style="color:var(--fat)">F ${mac.fat}g</span>`;
 }
 
 async function confirmAddFood() {
   const prod = addFoodCtx.selectedProduct;
-  const grams = parseFloat(document.getElementById('food-grams-input').value);
+  const quantity = parseFloat(document.getElementById('food-grams-input').value);
   if (!prod) { alert('Seleziona un alimento.'); return; }
-  if (!grams || grams <= 0) { alert('Quantità non valida.'); return; }
+  if (!quantity || quantity <= 0) { alert('Quantità non valida.'); return; }
   const k = dateKey(state.currentDate);
   const meals = await getDiaryDay(k);
   const meal = meals.find(m => m.id === addFoodCtx.mealId);
@@ -1638,10 +1644,10 @@ async function confirmAddFood() {
 
   if (addFoodCtx.editingIndex !== null && addFoodCtx.editingIndex !== undefined) {
     // update existing entry
-    meal.foods[addFoodCtx.editingIndex] = { productId: prod.id, grams };
+    meal.foods[addFoodCtx.editingIndex] = { productId: prod.id, grams: quantity };
     notif('Alimento aggiornato!');
   } else {
-    meal.foods.push({ productId: prod.id, grams });
+    meal.foods.push({ productId: prod.id, grams: quantity });
     notif(prod.name + ' aggiunto!');
   }
 
@@ -1652,7 +1658,12 @@ async function confirmAddFood() {
 
 function openAddProductModal() {
   productCtx.editId = null;
-  ['np-name','np-brand','np-kcal','np-prot','np-carb','np-fat','np-emoji'].forEach(id => document.getElementById(id).value = '');
+  ['np-name','np-brand','np-kcal','np-prot','np-carb','np-fat','np-emoji','np-piece-weight'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  document.getElementById('np-unit').value = 'g';
+  togglePieceWeightField();
   document.querySelector('#modal-add-product .modal-title').textContent = 'Nuovo Prodotto';
   openModal('modal-add-product');
 }
@@ -1665,6 +1676,9 @@ function openEditProductModal(id) {
   document.getElementById('np-brand').value = p.brand;
   document.getElementById('np-cat').value = p.category;
   document.getElementById('np-emoji').value = p.emoji;
+  document.getElementById('np-unit').value = p.unit || 'g';
+  document.getElementById('np-piece-weight').value = p.pieceWeight || '';
+  togglePieceWeightField();
   document.getElementById('np-kcal').value = p.kcal;
   document.getElementById('np-prot').value = p.prot;
   document.getElementById('np-carb').value = p.carb;
@@ -1684,8 +1698,11 @@ async function saveNewProduct() {
   const prot = parseFloat(document.getElementById('np-prot').value);
   const carb = parseFloat(document.getElementById('np-carb').value);
   const fat  = parseFloat(document.getElementById('np-fat').value);
+  const unit = document.getElementById('np-unit').value || 'g';
+  const pieceWeight = unit === 'pcs' ? (parseFloat(document.getElementById('np-piece-weight').value) || 100) : null;
   if (!name) { alert('Nome obbligatorio.'); return; }
   if ([kcal,prot,carb,fat].some(isNaN)) { alert('Inserisci tutti i valori nutrizionali.'); return; }
+  if (unit === 'pcs' && (!pieceWeight || pieceWeight <= 0)) { alert('Peso per pezzo obbligatorio e maggiore di 0.'); return; }
 
   if (productCtx.editId) {
     // update existing product
@@ -1695,6 +1712,8 @@ async function saveNewProduct() {
     p.brand = document.getElementById('np-brand').value.trim() || 'Generico';
     p.category = document.getElementById('np-cat').value;
     p.emoji = document.getElementById('np-emoji').value.trim() || '📦';
+    p.unit = unit;
+    p.pieceWeight = unit === 'pcs' ? pieceWeight : null;
     p.kcal = kcal; p.prot = prot; p.carb = carb; p.fat = fat;
     await saveProduct(p);
     notif('Prodotto aggiornato!');
@@ -1705,6 +1724,8 @@ async function saveNewProduct() {
       brand: document.getElementById('np-brand').value.trim() || 'Generico',
       category: document.getElementById('np-cat').value,
       emoji: document.getElementById('np-emoji').value.trim() || '📦',
+      unit,
+      pieceWeight: unit === 'pcs' ? pieceWeight : null,
       kcal, prot, carb, fat,
     };
     await saveProduct(p);
@@ -1718,6 +1739,29 @@ async function saveNewProduct() {
   closeModal('modal-add-product');
   renderCategoryPills(); renderProducts();
 }
+
+function updateOnlineDot(online) {
+  const dot = document.getElementById('online-dot');
+  if (!dot) return;
+  dot.style.background = online ? 'var(--accent)' : 'var(--text3)';
+  dot.style.boxShadow = online ? '0 0 6px var(--accent)' : 'none';
+  dot.title = online ? 'Online' : 'Offline';
+}
+
+window.addEventListener('online', async () => {
+  updateOnlineDot(true);
+  notif('Connessione ripristinata ✓');
+  await syncCachedDiaries().catch(() => {});
+  await syncCachedProducts().catch(() => {});
+});
+
+window.addEventListener('offline', () => {
+  updateOnlineDot(false);
+  notif('Modalità offline — dati sincronizzati al rientro', '⚠️');
+});
+
+updateOnlineDot(navigator.onLine);
+
 // expose necessary functions to global scope without using eval
 window.changeDay = changeDay;
 window.showTab = showTab;
@@ -1737,6 +1781,7 @@ window.openEditProductModal = openEditProductModal;
 window.saveNewProduct = saveNewProduct;
 window.deleteProduct = deleteProduct;
 window.renderProducts = renderProducts;
+window.togglePieceWeightField = togglePieceWeightField;
 window.setFilter = setFilter;
 window.saveTargets = saveTargets;
 window.saveProfile = saveProfile;
@@ -1770,22 +1815,6 @@ window.addEventListener('appinstalled', () => {
   notif('App installata con successo! 🎉');
 });
 
-// network status indicator
-function updateNetworkStatus() {
-  const ind = document.getElementById('net-indicator');
-  if (ind) ind.textContent = navigator.onLine ? '🟢' : '⚫';
-}
-window.addEventListener('online', () => {
-  updateNetworkStatus();
-  notif('Connessione ripristinata ✓');
-  syncCachedDiaries();
-  syncCachedProducts();
-});
-window.addEventListener('offline', () => {
-  updateNetworkStatus();
-  notif('Modalità offline — i dati verranno sincronizzati al rientro');
-});
-updateNetworkStatus();
 
 // ===================== SERVICE WORKER =====================
 if ('serviceWorker' in navigator) {
@@ -1798,19 +1827,35 @@ if ('serviceWorker' in navigator) {
 
 // ===================== INIT =====================
 (async () => {
-  await openDB();
-  await loadSettings();
-  await loadProducts();
-  await render();
-  // Hide loading screen
-  document.getElementById('loading').style.display = 'none';
-  document.getElementById('app').style.display = 'flex';
-  if (!state.user) {
-    openModal('modal-login');
-  }
-  // if already logged-in when initializing, start product subscription
-  if (state.useFirebase && state.user) {
-    subscribeProducts();
+  try {
+    await openDB();
+    await loadSettings();
+    await loadProducts();
+    await render();
+
+    // Wait for Firebase Auth to resolve before hiding loading screen
+    await new Promise(resolve => {
+      const unsub = onAuthStateChanged(fbAuth, user => {
+        unsub();
+        resolve(user);
+      });
+    });
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+
+    if (!state.user) {
+      openModal('modal-login');
+    }
+    if (state.useFirebase && state.user) {
+      subscribeProducts();
+    }
+  } catch (e) {
+    console.error('Initialization error', e);
+    const loadingEl = document.getElementById('loading');
+    if (loadingEl) {
+      loadingEl.innerHTML = '<p style="color:#f55">Errore durante il caricamento.</p>';
+    }
   }
 })();
 </script>
