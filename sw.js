@@ -1,8 +1,9 @@
 // bump this value each time you deploy to force clients to refresh caches
-const CACHE_NAME = 'fuel-v3';
+const CACHE_NAME = 'fuel-v23';
 const ASSETS = [
   './index.html',
   './manifest.json',
+  './zxing.min.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   'https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap'
@@ -39,22 +40,35 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
-// Fetch: serve from cache, fallback to network
 self.addEventListener('fetch', event => {
-  // always try network for navigations to pick up new index.html
+  const reqUrl = new URL(event.request.url);
+
+  // Always fetch external APIs directly — never cache them
+  if (
+    reqUrl.origin !== self.location.origin ||
+    reqUrl.pathname.includes('openfoodfacts') ||
+    reqUrl.hostname.includes('openfoodfacts.org')
+  ) {
+    event.respondWith(fetch(event.request).catch(() => {
+      return new Response(JSON.stringify({ status: 0 }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }));
+    return;
+  }
+
+  // Always try network first for navigation (index.html)
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetchAndCache(event.request).catch(() => caches.match('./index.html'))
     );
     return;
   }
+
+  // Cache-first for static assets (zxing.min.js, icons, fonts, etc.)
   event.respondWith(
     caches.match(event.request).then(cached => {
-      return cached || fetchAndCache(event.request).catch(() => {
-        if (event.request.mode === 'navigate') {
-          return caches.match('./index.html');
-        }
-      });
+      return cached || fetchAndCache(event.request).catch(() => undefined);
     })
   );
 });

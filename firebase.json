@@ -4,12 +4,10 @@
     "ignore": [
       "firebase.json",
       "**/.*",
-      "node_modules/**",
+      "**/node_modules/**",
       "venv/**",
-      "public/**",
-      "package.json",
-      "package-lock.json",
-      "ISTRUZIONI.md"
+      "firestore.rules",
+      "firestore.indexes.json"
     ],
     "rewrites": [
       {
